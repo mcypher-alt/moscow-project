@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  # 1. База данных
+  postgres:
+    image: postgres:16-alpine
+    container_name: hackathon_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: main_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  # 2. ML-микросервис
+  ml-service:
+    build: ./ml-service
+    container_name: hackathon_ml
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./ml-service:/app
+
+  # 3. Основной бэкенд (Express)
+  server:
+    build: ./server
+    container_name: hackathon_server
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      PORT: 4000
+      DATABASE_URL: "postgresql://dev:password@postgres:5432/main_db?schema=public"
+      ML_SERVICE_URL: "http://ml-service:8000"
+    depends_on:
+      - postgres
+      - ml-service
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+
+  # 4. Фронтенд (React)
+  client:
+    build: ./client
+    container_name: hackathon_client
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - server
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+
+volumes:
+  pgdata:

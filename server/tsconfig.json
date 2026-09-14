@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    /* Раскладка файлов */
+    "rootDir": "./src",
+    "outDir": "./dist",
+
+    /* Окружение Node.js */
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+
+    /* Строгость проверок (без фанатизма) */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+
+    /* Совместимость и сборка */
+    "esModuleInterop": true,
+    "moduleDetection": "force"
+  },
+  "include": ["src/**/*"]
+}
