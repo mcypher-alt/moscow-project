@@ -44,20 +44,17 @@ model SystemObject {
 
 // 2. Справочник каналов датчиков (Скриншот 1)
 model SensorChannel {
-    id             Int            @id // ид_канала_данных (120578, 120504...)
-    systemType     String         // тип_инж_системы ("Пожарная охрана", "Температурная...")
-    sensorType     String         // тип_датчика ("Тепловой датчик", "КД Дверь")
-    systemTag      String         // тег_инженерной_системы ("15-11.1.131.2.")
-    sensorName     String         // название_датчика ("ТД ПК86-85", "Темп. ВШ ПК88,5")
+  id              Int          @id // Внешний ID напрямую из справочника
+  systemTag       String
+  sensorName      String
+  systemType      String
+  sensorType      String?
+  systemObjectId  Int
+  systemObject    SystemObject @relation(fields: [systemObjectId], references: [id])
+  events          EventLog[]
+  incidents       Incident[]
 
-    // Опциональная привязка к объекту диспетчера
-    systemObjectId Int?
-    systemObject   SystemObject?  @relation(fields: [systemObjectId], references: [id])
-
-    events         EventLog[]
-
-    @@index([systemTag])
-    @@index([systemType])
+  @@index([systemObjectId])
 }
 
 // 3. Журнал событий / телеметрия (Скриншот 3)
@@ -91,16 +88,22 @@ model Incident {
     systemObjectId   Int
     systemObject     SystemObject       @relation(fields: [systemObjectId], references: [id])
 
+    channelId        Int?
+    channel          SensorChannel?  @relation(fields: [channelId], references: [id])
+
     scenario         String             // "Пожар", "Подтопление", "Взлом"
     probability      Float              // 0.0 - 1.0
     timeHorizonHours Int                @default(24)
     status           IncidentStatus     @default(PREDICTED_RISK)
     recommendation   String?
-    createdAt        DateTime           @default(now())
 
+    triggerFactors   Json?
+
+    createdAt        DateTime           @default(now())
     actions          DispatcherAction[]
 
     @@index([status])
+    @@index([systemObjectId])
 }
 
 // 5. Действия диспетчера

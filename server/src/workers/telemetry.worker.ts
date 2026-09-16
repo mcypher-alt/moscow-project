@@ -1,0 +1,172 @@
+import { prisma } from '../db.js';
+import { predictIncidentRisk } from '../services/mlClient.service.js';
+import { MLInferenceRequest, SensorChannelBatch } from '../services/mlMock.service.js';
+import { saveHotAlert } from '../services/alertCache.service.js';
+
+let isRunning = false;
+let lastProcessedEventId: bigint = 0n;
+
+const BATCH_SIZE = 50;
+const TICK_INTERVAL_MS = 2000;
+const CRITICAL_THRESHOLD = 0.70;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function processTelemetryCycle() {
+  // 1. Выбираем события телеметрии с подтягиванием связанных моделей
+  const events = await prisma.eventLog.findMany({
+    where: {
+      id: { gt: lastProcessedEventId },
+    },
+    take: BATCH_SIZE,
+    orderBy: { id: 'asc' },
+    include: {
+      channel: {
+        include: {
+          systemObject: true,
+        },
+      },
+    },
+  });
+
+  if (events.length === 0) {
+    return;
+  }
+
+  // Безопасное чтение последнего элемента батча
+  const lastEvent = events[events.length - 1];
+  if (lastEvent) {
+    lastProcessedEventId = lastEvent.id;
+  }
+
+  // 2. Безопасная группировка по объектам диспетчеризации
+  type EventItem = (typeof events)[number];
+  const groupedByObject = new Map<number, EventItem[]>();
+
+  for (const event of events) {
+    const objId = event.channel.systemObjectId;
+    const currentGroup = groupedByObject.get(objId);
+
+    if (currentGroup) {
+      currentGroup.push(event);
+    } else {
+      groupedByObject.set(objId, [event]);
+    }
+  }
+
+  // 3. Формирование контрактов для каждого объекта
+  for (const [objectId, objectEvents] of groupedByObject) {
+    const firstObjectEvent = objectEvents[0];
+    if (!firstObjectEvent) continue;
+
+    const systemObject = firstObjectEvent.channel.systemObject;
+
+    // Группировка событий по датчикам
+    const channelsMap = new Map<number, EventItem[]>();
+    for (const ev of objectEvents) {
+      const channelGroup = channelsMap.get(ev.channelId);
+      if (channelGroup) {
+        channelGroup.push(ev);
+      } else {
+        channelsMap.set(ev.channelId, [ev]);
+      }
+    }
+
+    // Собираем батч каналов через flatMap (исключает undefined)
+    const channelsPayload: SensorChannelBatch[] = Array.from(channelsMap.entries()).flatMap(
+      ([chId, chEvents]) => {
+        const firstChEvent = chEvents[0];
+        if (!firstChEvent) return [];
+
+        const meta = firstChEvent.channel;
+        return [
+          {
+            channelId: chId,
+            systemTag: meta.systemTag,
+            sensorName: meta.sensorName,
+            systemType: meta.systemType,
+            sensorType: meta.sensorType,
+            readings: chEvents.map((e) => ({
+              recordedAt: e.recordedAt.toISOString(),
+              numericValue: e.numericValue,
+              rawValue: e.rawValue,
+              isAlarm: e.isAlarm,
+            })),
+          },
+        ];
+      }
+    );
+
+    const payload: MLInferenceRequest = {
+      systemObjectId: objectId,
+      dispatcherName: systemObject.dispatcherName,
+      timeHorizonHours: 24,
+      timestamp: new Date().toISOString(),
+      channels: channelsPayload,
+    };
+
+    // 4. Инференс и запись результатов
+    try {
+      const mlResponse = await predictIncidentRisk(payload);
+
+      for (const pred of mlResponse.predictions) {
+        const primaryFactor = pred.triggerFactors?.[0];
+
+        const incident = await prisma.incident.create({
+          data: {
+            systemObjectId: mlResponse.systemObjectId,
+            scenario: pred.scenario,
+            probability: pred.probability,
+            timeHorizonHours: pred.timeHorizonHours,
+            recommendation: pred.recommendation,
+            triggerFactors: pred.triggerFactors as any,
+            channelId: primaryFactor?.channelId ?? null,
+          },
+        });
+
+        if (pred.probability >= CRITICAL_THRESHOLD) {
+          console.log(
+            `🚨 [CRITICAL ALERT] Объект "${systemObject.dispatcherName}": ` +
+              `${pred.scenario} (риск: ${(pred.probability * 100).toFixed(0)}%)`
+          );
+
+          try {
+            await saveHotAlert({
+              id: incident.id,
+              systemObjectId: mlResponse.systemObjectId,
+              dispatcherName: systemObject.dispatcherName,
+              scenario: pred.scenario,
+              probability: pred.probability,
+              recommendation: pred.recommendation,
+              triggerFactors: pred.triggerFactors,
+            });
+          } catch (cacheErr) {
+            console.error('Ошибка сохранения алерта в Valkey/Redis:', cacheErr);
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`Ошибка при инференсе объекта ${objectId}:`, err);
+    }
+  }
+}
+
+export async function startTelemetryWorker() {
+  if (isRunning) return;
+  isRunning = true;
+  console.log('🚀 Фоновый воркер телеметрии запущен');
+
+  while (isRunning) {
+    try {
+      await processTelemetryCycle();
+    } catch (error) {
+      console.error('Ошибка в такте воркера телеметрии:', error);
+    }
+    await sleep(TICK_INTERVAL_MS);
+  }
+}
+
+export function stopTelemetryWorker() {
+  isRunning = false;
+  console.log('Фоновый воркер остановлен');
+}
