@@ -11,9 +11,16 @@ services:
       POSTGRES_PASSWORD: password
       POSTGRES_DB: main_db
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: moscow_valkey
+    ports:
+      - "6379:6379"
+    command: ["valkey-server", "--save", ""]
 
   # 2. ML-микросервис
   ml-service:
@@ -31,7 +38,7 @@ services:
     container_name: hackathon_server
     restart: unless-stopped
     ports:
-      - "4000:4000"
+      - "5000:5000"
     environment:
       PORT: 4000
       DATABASE_URL: "postgresql://dev:password@postgres:5432/main_db?schema=public"

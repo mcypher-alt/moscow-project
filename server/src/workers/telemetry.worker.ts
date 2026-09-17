@@ -156,6 +156,15 @@ export async function startTelemetryWorker() {
   isRunning = true;
   console.log('🚀 Фоновый воркер телеметрии запущен');
 
+  /* if (lastProcessedEventId === 0n) {
+  const latestEvent = await prisma.eventLog.findFirst({
+    orderBy: { id: 'desc' },
+    select: { id: true }
+  });
+  lastProcessedEventId = latestEvent?.id ?? 0n;
+  }
+  */
+
   while (isRunning) {
     try {
       await processTelemetryCycle();

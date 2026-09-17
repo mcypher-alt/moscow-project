@@ -1,7 +1,16 @@
 import { Router, Request, Response } from 'express';
-import { AuthService } from '../services/auth.service.js';
+import { login, getCurrentUser } from '../services/auth.service.js';
+import { authenticateJwt } from '../middlewares/auth.js';
 
 const router = Router();
+
+const COOKIE_NAME = 'token';
+const COOKIE_OPTIONS = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax' as const,
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 дней
+};
 
 router.post('/login', async (req: Request, res: Response) => {
     const { email, password } = req.body;
@@ -11,13 +20,35 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 
     try {
-        const result = await AuthService.login({ email, password });
-        return res.json(result);
+        const { user, token } = await login({ email, password });
+
+        res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
+        return res.json({ user });
     } catch (error: any) {
         if (error.message === 'INVALID_CREDENTIALS') {
             return res.status(401).json({ error: 'Неверные учетные данные' });
         }
         return res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+    }
+});
+
+router.post('/logout', (_req: Request, res: Response) => {
+    res.clearCookie(COOKIE_NAME, {
+        httpOnly: true,
+        sameSite: 'lax',
+    });
+    return res.json({ success: true });
+});
+
+router.get('/me', authenticateJwt, async (req: Request, res: Response) => {
+    try {
+        const user = await getCurrentUser(req.user!.id);
+        return res.json(user);
+    } catch (error: any) {
+        if (error.message === 'USER_NOT_FOUND') {
+            return res.status(404).json({ error: 'Пользователь не найден' });
+        }
+        return res.status(500).json({ error: 'Ошибка получения профиля' });
     }
 });
 

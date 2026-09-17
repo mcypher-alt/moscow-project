@@ -15,7 +15,7 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'http://localhost:4000', // порт твоего Express-сервера
+        target: 'http://localhost:5000', // порт твоего Express-сервера
         changeOrigin: true,
       },
     },

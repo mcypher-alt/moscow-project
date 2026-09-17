@@ -1,14 +1,14 @@
 import { Router, Request, Response } from 'express';
 import { Role } from '@prisma/client';
 import { authenticateJwt, requireRoles } from '../middlewares/auth.js';
-import { IncidentService } from '../services/incident.service.js';
+import * as IncidentService from '../services/incident.service.js';
 import { getTopHotAlerts } from '../services/alertCache.service.js';
 
 const router = Router();
 
 // Получение списка инцидентов
 router.get(
-    '/incidents',
+    '/',
     authenticateJwt,
     requireRoles(Role.DISPATCHER, Role.ANALYST, Role.ADMIN),
     async (_req: Request, res: Response) => {
@@ -23,7 +23,7 @@ router.get(
 
 // Фиксация действия диспетчера по инциденту
 router.post(
-    '/incidents/:id/action',
+    '/:id/action',
     authenticateJwt,
     requireRoles(Role.DISPATCHER, Role.ADMIN),
     async (req: Request<{ id: string }>, res: Response) => {
@@ -48,14 +48,5 @@ router.post(
         }
     }
 );
-
-router.get('/alerts/hot', async (_req, res) => {
-    try {
-        const alerts = await getTopHotAlerts(10);
-        res.json({ count: alerts.length, alerts });
-    } catch (err) {
-        res.status(500).json({ error: 'Не удалось получить алерты из кэша' });
-    }
-});
 
 export default router;
