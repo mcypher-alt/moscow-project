@@ -52,6 +52,7 @@ export interface DispatcherAction {
 export interface RecordActionPayload {
     decision: string;
     comment?: string;
+    timestamp: string;
 }
 
 // Горячий алерт из Redis (/api/alerts/hot и стрим SSE)
