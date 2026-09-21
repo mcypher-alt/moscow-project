@@ -1,6 +1,5 @@
 import { Router, Request, Response } from 'express';
 import { getTopHotAlerts, resolveHotAlert, alertEvents } from '../services/alertCache.service.js';
-import { prisma } from '../db.js';
 import { acknowledgeIncident } from '../services/incident.service.js';
 
 const router = Router();

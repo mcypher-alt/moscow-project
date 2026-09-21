@@ -77,33 +77,34 @@ model EventLog {
 
 // 4. Предикты инцидентов от ML
 enum IncidentStatus {
-    PREDICTED_RISK
-    VERIFIED_DISPATCHED
-    FALSE_ALARM
-    RESOLVED
+    OPEN              // Прогноз получен, ждет реакции
+    IN_PROGRESS       // Диспетчер принял меры (отправил бригаду)
+    CONFIRMED         // Авария реально подтвердилась / предотвращена
+    FALSE_POSITIVE    // Ложное срабатывание (постфактум проверили — всё чисто)
 }
 
 model Incident {
-    id               String             @id @default(uuid())
-    systemObjectId   Int
-    systemObject     SystemObject       @relation(fields: [systemObjectId], references: [id])
+  id               String             @id @default(uuid())
+  systemObjectId   Int
+  systemObject     SystemObject       @relation(fields: [systemObjectId], references: [id])
 
-    channelId        Int?
-    channel          SensorChannel?  @relation(fields: [channelId], references: [id])
+  channelId        Int?
+  channel          SensorChannel?     @relation(fields: [channelId], references: [id])
 
-    scenario         String             // "Пожар", "Подтопление", "Взлом"
-    probability      Float              // 0.0 - 1.0
-    timeHorizonHours Int                @default(24)
-    status           IncidentStatus     @default(PREDICTED_RISK)
-    recommendation   String?
+  scenario         String             // Тип инцидента (mlResponse.incidentType)
+  horizon          String             // Человекочитаемый горизонт ("24-48 часов", "2-4 часа")
+  reason           String             // Прямая физическая причина (триггер)
+  recommendation   String?            // Инструкция для диспетчера
 
-    triggerFactors   Json?
+  status           IncidentStatus     @default(OPEN)
 
-    createdAt        DateTime           @default(now())
-    actions          DispatcherAction[]
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  actions          DispatcherAction[]
 
-    @@index([status])
-    @@index([systemObjectId])
+  @@index([status])
+  @@index([systemObjectId])
+  @@index([createdAt])
 }
 
 // 5. Действия диспетчера

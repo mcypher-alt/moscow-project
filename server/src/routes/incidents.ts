@@ -1,22 +1,31 @@
 import { Router, Request, Response } from 'express';
-import { Role } from '@prisma/client';
+import { Role, IncidentStatus } from '@prisma/client';
 import { authenticateJwt, requireRoles } from '../middlewares/auth.js';
 import * as IncidentService from '../services/incident.service.js';
-import { getTopHotAlerts } from '../services/alertCache.service.js';
 
 const router = Router();
 
-// Получение списка инцидентов
+// Получение списка инцидентов с фильтрацией
 router.get(
     '/',
     authenticateJwt,
     requireRoles(Role.DISPATCHER, Role.ANALYST, Role.ADMIN),
-    async (_req: Request, res: Response) => {
+    async (req: Request, res: Response) => {
         try {
-            const incidents = await IncidentService.getAllIncidents();
+            const { status, systemObjectId, search, dateFrom, dateTo } = req.query;
+
+            const incidents = await IncidentService.getAllIncidents({
+                status: status ? (String(status) as IncidentStatus) : undefined,
+                systemObjectId: systemObjectId ? Number(systemObjectId) : undefined,
+                search: search ? String(search) : undefined,
+                dateFrom: dateFrom ? String(dateFrom) : undefined,
+                dateTo: dateTo ? String(dateTo) : undefined,
+            });
+
             return res.json(incidents);
-        } catch (error) {
-            return res.status(500).json({ error: 'Ошибка получения инцидентов' });
+        } catch (err) {
+            console.error('Ошибка при получении инцидентов:', err);
+            return res.status(500).json({ error: 'Не удалось загрузить инциденты' });
         }
     }
 );
@@ -44,6 +53,7 @@ router.post(
 
             return res.status(201).json(action);
         } catch (error) {
+            console.error('Ошибка сохранения действия диспетчера:', error);
             return res.status(500).json({ error: 'Ошибка сохранения действия' });
         }
     }

@@ -109,42 +109,44 @@ async function processTelemetryCycle() {
     try {
       const mlResponse = await predictIncidentRisk(payload);
 
-      for (const pred of mlResponse.predictions) {
-        const primaryFactor = pred.triggerFactors?.[0];
-
-        const incident = await prisma.incident.create({
-          data: {
-            systemObjectId: mlResponse.systemObjectId,
-            scenario: pred.scenario,
-            probability: pred.probability,
-            timeHorizonHours: pred.timeHorizonHours,
-            recommendation: pred.recommendation,
-            triggerFactors: pred.triggerFactors as any,
-            channelId: primaryFactor?.channelId ?? null,
-          },
-        });
-
-        if (pred.probability >= CRITICAL_THRESHOLD) {
-          console.log(
-            `🚨 [CRITICAL ALERT] Объект "${systemObject.dispatcherName}": ` +
-              `${pred.scenario} (риск: ${(pred.probability * 100).toFixed(0)}%)`
-          );
-
-          try {
-            await saveHotAlert({
-              id: incident.id,
-              systemObjectId: mlResponse.systemObjectId,
-              dispatcherName: systemObject.dispatcherName,
-              scenario: pred.scenario,
-              probability: pred.probability,
-              recommendation: pred.recommendation,
-              triggerFactors: pred.triggerFactors,
-            });
-          } catch (cacheErr) {
-            console.error('Ошибка сохранения алерта в Valkey/Redis:', cacheErr);
-          }
-        }
+      // ЕСЛИ АВАРИИ НЕТ — ничего не создаем, идем к следующему объекту
+      if (!mlResponse.isIncidentPredicted) {
+        continue;
       }
+
+      // ЕСЛИ МОДЕЛЬ СПРОГНОЗИРОВАЛА АВАРИЮ:
+      // 1. Создаем бизнес-инцидент в постоянной базе PostgreSQL
+      const incident = await prisma.incident.create({
+        data: {
+          systemObjectId: objectId,
+          scenario: mlResponse.incidentType,           // Что сломается
+          recommendation: mlResponse.recommendation,   // Что делать диспетчеру
+          horizon: mlResponse.horizon,                 // Например: "24-48 часов"
+          reason: mlResponse.reason,                   // Причина (триггер)
+          status: 'OPEN',                              // Новый необработанный инцидент
+        },
+      });
+
+      console.log(
+        `🚨 [АВАРИЯ] Объект "${systemObject.dispatcherName}": ` +
+        `${mlResponse.incidentType} (Срок: ${mlResponse.horizon})`
+      );
+
+      // 2. Мгновенно кладем в оперативный кэш Redis/Valkey для вывода на дашборд
+      try {
+        await saveHotAlert({
+          id: incident.id,
+          systemObjectId: objectId,
+          dispatcherName: systemObject.dispatcherName,
+          scenario: mlResponse.incidentType,
+          recommendation: mlResponse.recommendation,
+          horizon: mlResponse.horizon,
+          reason: mlResponse.reason,
+        });
+      } catch (cacheErr) {
+        console.error('Ошибка сохранения алерта в Valkey/Redis:', cacheErr);
+      }
+
     } catch (err) {
       console.error(`Ошибка при инференсе объекта ${objectId}:`, err);
     }

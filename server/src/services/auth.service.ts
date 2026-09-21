@@ -1,8 +1,7 @@
 import { prisma } from '../db.js';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key';
+import { JWT_SECRET } from '../config/jwt.js';
 
 export interface LoginParams {
     email: string;

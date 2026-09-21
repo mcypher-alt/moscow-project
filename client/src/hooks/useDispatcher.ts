@@ -68,13 +68,15 @@ export function useHotAlerts(limit = 10) {
     const alertsQuery = useQuery({
         queryKey: QUERY_KEYS.hotAlerts,
         queryFn: () => alertsApi.getHot(limit),
-        staleTime: Infinity, // Актуализируется исключительно по SSE
+        staleTime: Infinity, // Актуализируется по SSE
     });
 
     const ackMutation = useMutation({
         mutationFn: alertsApi.acknowledge,
         onSuccess: () => {
+            // 1. Сбрасываем кэш и алертов, и журнала инцидентов сразу после ответа бэкенда
             queryClient.invalidateQueries({ queryKey: QUERY_KEYS.hotAlerts });
+            queryClient.invalidateQueries({ queryKey: QUERY_KEYS.incidents });
         },
     });
 
@@ -83,17 +85,22 @@ export function useHotAlerts(limit = 10) {
         const streamUrl = alertsApi.getStreamUrl();
         const eventSource = new EventSource(streamUrl, { withCredentials: true });
 
-        eventSource.onmessage = () => {
-            // При любом событии из шины сбрасываем кэш алертов и инцидентов
+        const handleUpdate = () => {
             queryClient.invalidateQueries({ queryKey: QUERY_KEYS.hotAlerts });
             queryClient.invalidateQueries({ queryKey: QUERY_KEYS.incidents });
         };
+
+        // Слушаем конкретные именованные события из SSE-контроллера
+        eventSource.addEventListener('hot_alert', handleUpdate);
+        eventSource.addEventListener('alert_resolved', handleUpdate);
 
         eventSource.onerror = (err) => {
             console.error('SSE Stream Error:', err);
         };
 
         return () => {
+            eventSource.removeEventListener('hot_alert', handleUpdate);
+            eventSource.removeEventListener('alert_resolved', handleUpdate);
             eventSource.close();
         };
     }, [queryClient]);

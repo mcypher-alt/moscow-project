@@ -3,7 +3,11 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts"
+    "dev": "tsx watch src/index.ts",
+    "seed:dispatchers": "tsx prisma/seed-dispatchers.ts",
+    "seed:csv": "tsx prisma/seed-csv.ts",
+    "seed:redis": "tsx prisma/seed-redis.ts",
+    "seed:all": "npm run seed:dispatchers && npm run seed:csv && npm run seed:redis"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
@@ -35,6 +39,8 @@
     "deepmerge-ts": "^7.1.6"
   },
   "prisma": {
-    "seed": "tsx prisma/seed.ts"
+    "seed:csv": "tsx prisma/seed-csv.ts",
+    "seed:dispatchers": "tsx prisma/seed-dispatchers.ts",
+    "seed:all": "npm run seed:dispatchers && npm run seed:csv"
   }
 }

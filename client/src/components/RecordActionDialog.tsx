@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import {
     Dialog,
@@ -9,80 +9,170 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import type { RecordActionPayload } from '../types';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
+import type { Incident, RecordActionPayload } from '../types';
 
 interface Props {
-    incidentId: string;
+    incidentId?: string;
+    incident?: Incident;
     onSubmit: (payload: RecordActionPayload) => Promise<unknown>;
     disabled?: boolean;
 }
 
-export function RecordActionDialog({ incidentId, onSubmit, disabled }: Props) {
+const ACTION_PRESETS = [
+    { value: 'DISPATCH_EMERGENCY_TEAM', label: 'Аварийный выезд дежурной бригады (АВБ)' },
+    { value: 'EQUIPMENT_SHUTDOWN', label: 'Аварийное отключение / локализация узла' },
+    { value: 'REMOTE_DIAGNOSTICS', label: 'Дистанционная перекалибровка и мониторинг' },
+    { value: 'INSPECTION_SCHEDULED', label: 'Включение в план ближайшего техобслуживания' },
+];
+
+export function RecordActionDialog({ incidentId, incident, onSubmit, disabled }: Props) {
     const [open, setOpen] = useState(false);
-    const [actionType, setActionType] = useState('');
+    const [decision, setDecision] = useState('DISPATCH_EMERGENCY_TEAM');
     const [comment, setComment] = useState('');
     const [loading, setLoading] = useState(false);
 
+    const effectiveId = useMemo(
+        () => incident?.id || incidentId || '',
+        [incident, incidentId]
+    );
+
+    // Функция формирования текста наряда-задания
+    const generateDraftOrder = (currentDecision: string) => {
+        const actionLabel =
+            ACTION_PRESETS.find((p) => p.value === currentDecision)?.label || currentDecision;
+
+        if (!incident) {
+            return [
+                `НАРЯД-ЗАДАНИЕ ПО ИНЦИДЕНТУ #${effectiveId.slice(0, 8).toUpperCase()}`,
+                `• Решение диспетчера: ${actionLabel}`,
+                `• Время регистрации: ${new Date().toLocaleString()}`,
+                `• Примечание: Провести оперативную проверку узла.`,
+            ].join('\n');
+        }
+
+        const objectLabel = incident.systemObject?.dispatcherName
+            ? `${incident.systemObject.dispatcherName} (Объект #${incident.systemObjectId})`
+            : `Объект #${incident.systemObjectId}`;
+
+        return [
+            `НАРЯД-ЗАДАНИЕ № ${incident.id.slice(0, 8).toUpperCase()}`,
+            `• Подведомственный узел: ${objectLabel}`,
+            `• Прогнозируемая авария: ${incident.scenario}`,
+            `• Расчетный горизонт развития: ${incident.horizon}`,
+            `• Зафиксированный фактор-триггер: ${incident.reason}`,
+            `• Предписанный регламент: ${incident.recommendation || 'Согласно типовой технологической карте объекта'}`,
+            `• Принятое решение: ${actionLabel}`,
+            `• Указание диспетчера: Бригаде выехать на объект со штатным комплектом приборов. Соблюдать регламент ТБ.`,
+        ].join('\n');
+    };
+
+    // Заполняем черновик только при явном открытии диалога
+    const handleOpenChange = (nextOpen: boolean) => {
+        setOpen(nextOpen);
+        if (nextOpen) {
+            setComment(generateDraftOrder(decision));
+        }
+    };
+
+    // Обновляем черновик при выборе другого решения в Select
+    const handleDecisionChange = (newDecision: string | undefined) => {
+        if (!newDecision) return;
+        setDecision(newDecision);
+        setComment(generateDraftOrder(newDecision));
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!actionType.trim()) return;
+        if (!decision.trim()) return;
 
         setLoading(true);
         try {
             await onSubmit({
-                decision: actionType,
+                decision,
                 comment,
                 timestamp: new Date().toISOString(),
             });
             setOpen(false);
-            setActionType('');
-            setComment('');
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger 
-                className={buttonVariants({ variant: "outline", size: "sm" })} 
+        <Dialog open={open} onOpenChange={handleOpenChange}>
+            <DialogTrigger
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
                 disabled={disabled}
             >
                 Зафиксировать действие
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
+            <DialogContent className="sm:max-w-[560px]">
                 <form onSubmit={handleSubmit}>
                     <DialogHeader>
                         <DialogTitle>Регистрация действия диспетчера</DialogTitle>
-                        <DialogDescription>Инцидент #{incidentId.slice(0, 8)}</DialogDescription>
+                        <DialogDescription>
+                            Инцидент #{effectiveId.slice(0, 8)}
+                        </DialogDescription>
                     </DialogHeader>
+
                     <div className="grid gap-4 py-4">
                         <div className="grid gap-2">
-                            <label className="text-sm font-medium">Тип действия</label>
-                            <Input
-                                placeholder="Например: ПЕРЕКРЫТИЕ_ЗАСЛОНКИ"
-                                value={actionType}
-                                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setActionType(e.target.value)}
-                                required
-                            />
+                            <Label htmlFor="action-decision">Принимаемое оперативное решение</Label>
+                            <Select value={decision} onValueChange={(val) => {
+                                if (val) handleDecisionChange(val);
+                            }}>
+                                <SelectTrigger id="action-decision">
+                                    <SelectValue placeholder="Выберите действие" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {ACTION_PRESETS.map((preset) => (
+                                        <SelectItem key={preset.value} value={preset.value}>
+                                            {preset.label}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
+
                         <div className="grid gap-2">
-                            <label className="text-sm font-medium">Комментарий / Причина</label>
+                            <div className="flex items-center justify-between">
+                                <Label htmlFor="action-comment">Черновик наряда / Комментарий</Label>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 text-xs text-muted-foreground hover:text-foreground"
+                                    onClick={() => setComment(generateDraftOrder(decision))}
+                                >
+                                    Сбросить к черновику
+                                </Button>
+                            </div>
                             <Textarea
-                                placeholder="Краткое описание принятых мер..."
+                                id="action-comment"
+                                rows={9}
+                                className="font-mono text-xs leading-relaxed"
+                                placeholder="Текст наряда или комментарий..."
                                 value={comment}
-                                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setComment(e.target.value)}
+                                onChange={(e) => setComment(e.target.value)}
                             />
                         </div>
                     </div>
-                    <DialogFooter>
+
+                    <DialogFooter className="gap-2 sm:gap-0">
                         <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
                             Отмена
                         </Button>
                         <Button type="submit" disabled={loading}>
-                            {loading ? 'Запись...' : 'Сохранить'}
+                            {loading ? 'Регистрация...' : 'Утвердить и отправить'}
                         </Button>
                     </DialogFooter>
                 </form>

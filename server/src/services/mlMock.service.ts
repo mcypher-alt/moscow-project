@@ -1,4 +1,7 @@
-// Типы контрактов
+// src/services/mlMock.service.ts
+
+// --- Входные контракты (остаются прежними для сбора телеметрии) ---
+
 export interface TelemetryReading {
   recordedAt: string;
   numericValue: number | null;
@@ -23,86 +26,93 @@ export interface MLInferenceRequest {
   channels: SensorChannelBatch[];
 }
 
-export interface TriggerFactor {
-  channelId: number;
-  reason: string;
-}
+// --- Новый целевой контракт ответа ML-сервиса ---
 
-export interface MLPrediction {
-  scenario: string;
-  probability: number;
-  timeHorizonHours: number;
-  recommendation: string;
-  triggerFactors: TriggerFactor[];
-}
-
-export interface MLInferenceResponse {
+export interface MLNegativeResponse {
+  isIncidentPredicted: false;
   systemObjectId: number;
   evaluatedAt: string;
-  predictions: MLPrediction[];
 }
 
+export interface MLPositiveResponse {
+  isIncidentPredicted: true;
+  systemObjectId: number;
+  evaluatedAt: string;
+  incidentType: string;    // Название аварии/сбоя
+  horizon: string;         // Срок прогноза (например, "24-48 часов")
+  reason: string;          // Физическая причина или триггер
+  recommendation: string;  // Инструкция для диспетчера
+  channelId?: number | null; // Датчик, вызвавший подозрение
+}
+
+export type MLInferenceResponse = MLNegativeResponse | MLPositiveResponse;
+
 /**
- * Имитация ответа от FastAPI ML-сервиса
+ * Имитация ответа от FastAPI ML-сервиса под требования бизнес-контракта
  */
 export async function mockMLInference(payload: MLInferenceRequest): Promise<MLInferenceResponse> {
-  // Имитируем небольшую задержку сетевого запроса к нейросети (150-300 мс)
+  // Имитация сетевой задержки обращения к Python-сервису (150-250 мс)
   await new Promise((resolve) => setTimeout(resolve, 200));
 
-  const predictions: MLPrediction[] = [];
+  const evaluatedAt = new Date().toISOString();
 
-  // Ищем каналы с признаками аномалий
+  // 1. Поиск аномальных показаний по каналам
   const suspiciousChannels = payload.channels.filter((ch) => {
     return ch.readings.some((r) => {
-      const isHighTemp = ch.sensorType?.includes('температур') && (r.numericValue ?? 0) > 60;
-      const isSmoke = ch.sensorType?.includes('дым') && r.isAlarm;
+      const isHighTemp = ch.sensorType?.toLowerCase().includes('температур') && (r.numericValue ?? 0) > 60;
+      const isSmoke = ch.sensorType?.toLowerCase().includes('дым') && r.isAlarm;
       return r.isAlarm || isHighTemp || isSmoke;
     });
   });
 
-  if (suspiciousChannels.length > 0) {
-    // 1. Симулируем пожарный риск
-    const fireChannel = suspiciousChannels.find(
-      (c) => c.systemType.includes('Пожар') || c.sensorType?.includes('температур')
-    );
-
-    if (fireChannel) {
-      const lastReading = fireChannel.readings[fireChannel.readings.length - 1];
-      predictions.push({
-        scenario: 'Пожарная опасность (перегрев оборудования)',
-        probability: +(0.82 + Math.random() * 0.15).toFixed(2), // 0.82 - 0.97
-        timeHorizonHours: 24,
-        recommendation: `Направить аварийную бригаду на объект "${payload.dispatcherName}". Проверить зону датчика ${fireChannel.sensorName}.`,
-        triggerFactors: [
-          {
-            channelId: fireChannel.channelId,
-            reason: `Резкий рост показаний датчика ${fireChannel.sensorName} (${lastReading?.rawValue ?? 'н/д'}) с признаком тревоги`,
-          },
-        ],
-      });
-    }
-
-    // 2. Симулируем охранный инцидент
-    const guardChannel = suspiciousChannels.find((c) => c.systemType.includes('Охран'));
-    if (guardChannel) {
-      predictions.push({
-        scenario: 'Несанкционированное проникновение в техпомещение',
-        probability: +(0.75 + Math.random() * 0.15).toFixed(2),
-        timeHorizonHours: 2,
-        recommendation: 'Запросить видеокамеры контура и отправить наряд службы безопасности.',
-        triggerFactors: [
-          {
-            channelId: guardChannel.channelId,
-            reason: `Срабатывание охранного датчика ${guardChannel.sensorName} в нерабочее время`,
-          },
-        ],
-      });
-    }
+  // Если всё работает штатно — возвращаем отрицательный вердикт без лишних данных
+  if (suspiciousChannels.length === 0) {
+    return {
+      isIncidentPredicted: false,
+      systemObjectId: payload.systemObjectId,
+      evaluatedAt,
+    };
   }
 
+  // 2. Симуляция пожарной опасности / перегрева
+  const fireChannel = suspiciousChannels.find(
+    (c) => c.systemType.includes('Пожар') || c.sensorType?.toLowerCase().includes('температур')
+  );
+
+  if (fireChannel) {
+    const lastReading = fireChannel.readings[fireChannel.readings.length - 1];
+    return {
+      isIncidentPredicted: true,
+      systemObjectId: payload.systemObjectId,
+      evaluatedAt,
+      incidentType: 'Пожарная опасность (перегрев оборудования)',
+      horizon: '24-48 часов',
+      reason: `Резкий рост показаний датчика "${fireChannel.sensorName}" (${lastReading?.rawValue ?? 'н/д'}) с флагом тревоги`,
+      recommendation: `Направить аварийную бригаду на объект "${payload.dispatcherName}". Проверить контур датчика ${fireChannel.sensorName}.`,
+      channelId: fireChannel.channelId,
+    };
+  }
+
+  // 3. Симуляция охранного инцидента
+  const guardChannel = suspiciousChannels.find((c) => c.systemType.includes('Охран'));
+
+  if (guardChannel) {
+    return {
+      isIncidentPredicted: true,
+      systemObjectId: payload.systemObjectId,
+      evaluatedAt,
+      incidentType: 'Несанкционированное проникновение в техпомещение',
+      horizon: '2-4 часа',
+      reason: `Срабатывание охранного датчика "${guardChannel.sensorName}" во внерабочее время`,
+      recommendation: 'Запросить видеопоток камер контура и направить наряд службы безопасности.',
+      channelId: guardChannel.channelId,
+    };
+  }
+
+  // Дефолтный ответ при отсутствии явного совпадения по типам инцидентов
   return {
+    isIncidentPredicted: false,
     systemObjectId: payload.systemObjectId,
-    evaluatedAt: new Date().toISOString(),
-    predictions,
+    evaluatedAt,
   };
 }
