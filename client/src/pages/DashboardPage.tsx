@@ -1,5 +1,10 @@
 import { ObjectRiskMap } from "../components/ObjectRiskMap";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -10,8 +15,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { useAuth, useIncidents, useHotAlerts } from "../hooks/useDispatcher";
+import { useIncidents, useHotAlerts } from "../hooks/useDispatcher";
 import { RecordActionDialog } from "../components/RecordActionDialog";
 
 const statusLabels: Record<string, string> = {
@@ -21,16 +25,28 @@ const statusLabels: Record<string, string> = {
   FALSE_POSITIVE: "Ложное срабатывание",
 };
 
-export function DashboardPage() {
-  const { user, logout } = useAuth();
+function formatDate(value: string) {
+  return new Date(value).toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
+export function DashboardPage() {
   const {
     incidents,
     isLoading: isIncidentsLoading,
     recordAction,
   } = useIncidents();
 
-  const { alerts, isLoading: isAlertsLoading, acknowledge } = useHotAlerts();
+  const {
+    alerts,
+    isLoading: isAlertsLoading,
+    acknowledge,
+  } = useHotAlerts();
 
   const openIncidents = incidents.filter(
     (incident) => incident.status === "OPEN",
@@ -45,40 +61,10 @@ export function DashboardPage() {
   ).length;
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur">
-        <div className="flex items-center justify-between px-6 py-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">
-              Центр предиктивного мониторинга
-            </h1>
-
-            <p className="mt-1 text-sm text-muted-foreground">
-              Инженерные коллекторы АО «Москоллектор»
-            </p>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <div className="hidden text-right sm:block">
-              <p className="text-sm font-medium">{user?.name ?? "Диспетчер"}</p>
-
-              <p className="text-xs text-muted-foreground">
-                {user?.role ?? ""}
-              </p>
-            </div>
-
-            <ThemeToggle />
-
-            <Button variant="outline" size="sm" onClick={() => logout()}>
-              Завершить смену
-            </Button>
-          </div>
-        </div>
-      </header>
-
-      <main className="space-y-6 p-6">
+    <div className="p-4 md:p-6">
+      <main className="mx-auto max-w-[1800px] space-y-6">
         {/* KPI */}
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -119,7 +105,9 @@ export function DashboardPage() {
             </CardHeader>
 
             <CardContent>
-              <div className="text-3xl font-bold">{inProgressIncidents}</div>
+              <div className="text-3xl font-bold">
+                {inProgressIncidents}
+              </div>
 
               <p className="mt-1 text-xs text-muted-foreground">
                 проверяются диспетчерами
@@ -135,7 +123,9 @@ export function DashboardPage() {
             </CardHeader>
 
             <CardContent>
-              <div className="text-3xl font-bold">{confirmedIncidents}</div>
+              <div className="text-3xl font-bold">
+                {confirmedIncidents}
+              </div>
 
               <p className="mt-1 text-xs text-muted-foreground">
                 подтверждённых прогнозов
@@ -143,10 +133,14 @@ export function DashboardPage() {
             </CardContent>
           </Card>
         </section>
-        <section className="grid gap-6 xl:grid-cols-[2fr_1fr]">
-          <Card>
+
+        {/* Карта */}
+        <section className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+          <Card className="min-w-0">
             <CardHeader>
-              <CardTitle className="text-lg">Карта объектов</CardTitle>
+              <CardTitle className="text-lg">
+                Карта объектов
+              </CardTitle>
 
               <p className="text-sm text-muted-foreground">
                 Состояние инженерной инфраструктуры и прогнозируемые риски
@@ -160,31 +154,36 @@ export function DashboardPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Сводка по рискам</CardTitle>
+              <CardTitle className="text-lg">
+                Сводка по рискам
+              </CardTitle>
             </CardHeader>
 
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-3">
               <div className="flex items-center justify-between rounded-lg border p-4">
                 <div className="flex items-center gap-3">
-                  <span className="h-3 w-3 rounded-full bg-red-500" />
+                  <span className="h-3 w-3 shrink-0 rounded-full bg-red-500" />
                   <span>Критический риск</span>
                 </div>
+
                 <strong>1</strong>
               </div>
 
               <div className="flex items-center justify-between rounded-lg border p-4">
                 <div className="flex items-center gap-3">
-                  <span className="h-3 w-3 rounded-full bg-amber-500" />
+                  <span className="h-3 w-3 shrink-0 rounded-full bg-amber-500" />
                   <span>Повышенный риск</span>
                 </div>
+
                 <strong>1</strong>
               </div>
 
               <div className="flex items-center justify-between rounded-lg border p-4">
                 <div className="flex items-center gap-3">
-                  <span className="h-3 w-3 rounded-full bg-green-500" />
+                  <span className="h-3 w-3 shrink-0 rounded-full bg-green-500" />
                   <span>Штатное состояние</span>
                 </div>
+
                 <strong>2</strong>
               </div>
             </CardContent>
@@ -192,11 +191,13 @@ export function DashboardPage() {
         </section>
 
         {/* Активные прогнозы */}
-        <Card className="border-destructive/30">
+        <Card className="min-w-0 border-destructive/30">
           <CardHeader>
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <CardTitle className="text-lg">Активные прогнозы</CardTitle>
+                <CardTitle className="text-lg">
+                  Активные прогнозы
+                </CardTitle>
 
                 <p className="mt-1 text-sm text-muted-foreground">
                   Потенциальные инциденты, обнаруженные системой предиктивной
@@ -205,7 +206,9 @@ export function DashboardPage() {
               </div>
 
               {alerts.length > 0 && (
-                <Badge variant="destructive">{alerts.length}</Badge>
+                <Badge variant="destructive">
+                  {alerts.length}
+                </Badge>
               )}
             </div>
           </CardHeader>
@@ -217,62 +220,93 @@ export function DashboardPage() {
               </p>
             ) : alerts.length === 0 ? (
               <div className="rounded-lg border border-border p-8 text-center">
-                <p className="font-medium">Инциденты не прогнозируются</p>
+                <p className="font-medium">
+                  Инциденты не прогнозируются
+                </p>
 
                 <p className="mt-1 text-sm text-muted-foreground">
                   На текущем горизонте состояние объектов штатное.
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
+              <div className="overflow-x-auto rounded-lg border">
+                <Table className="min-w-[1150px] table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Объект</TableHead>
-                      <TableHead>Инцидент</TableHead>
-                      <TableHead>Горизонт</TableHead>
-                      <TableHead>Причина</TableHead>
-                      <TableHead>Рекомендация</TableHead>
-                      <TableHead className="text-right">Действие</TableHead>
+                      <TableHead className="w-[15%]">
+                        Объект
+                      </TableHead>
+
+                      <TableHead className="w-[19%]">
+                        Инцидент
+                      </TableHead>
+
+                      <TableHead className="w-[10%]">
+                        Горизонт
+                      </TableHead>
+
+                      <TableHead className="w-[21%]">
+                        Причина
+                      </TableHead>
+
+                      <TableHead className="w-[25%]">
+                        Рекомендация
+                      </TableHead>
+
+                      <TableHead className="w-[10%] text-right">
+                        Действие
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
 
                   <TableBody>
                     {alerts.map((alert) => (
                       <TableRow key={alert.id}>
-                        <TableCell>
-                          <div className="font-medium">
+                        <TableCell className="align-top">
+                          <div className="break-words font-medium">
                             {alert.dispatcherName}
                           </div>
 
-                          <div className="text-xs text-muted-foreground">
+                          <div className="mt-1 text-xs text-muted-foreground">
                             Объект #{alert.systemObjectId}
                           </div>
                         </TableCell>
 
-                        <TableCell>
-                          <Badge variant="destructive">{alert.scenario}</Badge>
+                        <TableCell className="align-top whitespace-normal">
+                          <Badge
+                            variant="destructive"
+                            className="max-w-full whitespace-normal break-words text-left leading-snug"
+                          >
+                            {alert.scenario}
+                          </Badge>
                         </TableCell>
 
-                        <TableCell className="whitespace-nowrap font-medium">
-                          {alert.horizon}
+                        <TableCell className="align-top font-medium">
+                          <span className="whitespace-normal">
+                            {alert.horizon}
+                          </span>
                         </TableCell>
 
-                        <TableCell className="max-w-[280px]">
-                          <p className="text-sm">{alert.reason}</p>
+                        <TableCell className="align-top whitespace-normal break-words">
+                          <p className="text-sm leading-relaxed">
+                            {alert.reason}
+                          </p>
                         </TableCell>
 
-                        <TableCell className="max-w-[320px]">
-                          <p className="text-sm text-muted-foreground">
+                        <TableCell className="align-top whitespace-normal break-words">
+                          <p className="text-sm leading-relaxed text-muted-foreground">
                             {alert.recommendation ?? "—"}
                           </p>
                         </TableCell>
 
-                        <TableCell className="text-right">
+                        <TableCell className="align-top text-right">
                           <Button
                             size="sm"
                             variant="secondary"
-                            onClick={() => acknowledge(String(alert.id))}
+                            className="whitespace-nowrap"
+                            onClick={() =>
+                              acknowledge(String(alert.id))
+                            }
                           >
                             Квитировать
                           </Button>
@@ -287,10 +321,12 @@ export function DashboardPage() {
         </Card>
 
         {/* Журнал */}
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <div>
-              <CardTitle className="text-lg">Журнал инцидентов</CardTitle>
+              <CardTitle className="text-lg">
+                Журнал инцидентов
+              </CardTitle>
 
               <p className="mt-1 text-sm text-muted-foreground">
                 История прогнозов и результаты их обработки
@@ -304,69 +340,97 @@ export function DashboardPage() {
                 Загрузка журнала...
               </p>
             ) : incidents.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                В журнале пока нет записей.
-              </p>
+              <div className="rounded-lg border p-8 text-center">
+                <p className="text-sm text-muted-foreground">
+                  В журнале пока нет записей.
+                </p>
+              </div>
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
+              <div className="overflow-x-auto rounded-lg border">
+                <Table className="min-w-[1200px] table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Объект</TableHead>
-                      <TableHead>Статус</TableHead>
-                      <TableHead>Инцидент</TableHead>
-                      <TableHead>Горизонт</TableHead>
-                      <TableHead>Причина</TableHead>
-                      <TableHead>Создан</TableHead>
-                      <TableHead className="text-right">Действие</TableHead>
+                      <TableHead className="w-[8%]">
+                        Объект
+                      </TableHead>
+
+                      <TableHead className="w-[11%]">
+                        Статус
+                      </TableHead>
+
+                      <TableHead className="w-[19%]">
+                        Инцидент
+                      </TableHead>
+
+                      <TableHead className="w-[10%]">
+                        Горизонт
+                      </TableHead>
+
+                      <TableHead className="w-[23%]">
+                        Причина
+                      </TableHead>
+
+                      <TableHead className="w-[13%]">
+                        Создан
+                      </TableHead>
+
+                      <TableHead className="w-[16%] text-right">
+                        Действие
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
 
                   <TableBody>
                     {incidents.map((incident) => (
                       <TableRow key={incident.id}>
-                        <TableCell className="font-mono text-sm">
+                        <TableCell className="align-top font-mono text-sm">
                           #{incident.systemObjectId}
                         </TableCell>
 
-                        <TableCell>
+                        <TableCell className="align-top">
                           <Badge
                             variant={
                               incident.status === "OPEN"
                                 ? "destructive"
                                 : "secondary"
                             }
+                            className="whitespace-normal"
                           >
-                            {statusLabels[incident.status] ?? incident.status}
+                            {statusLabels[incident.status] ??
+                              incident.status}
                           </Badge>
                         </TableCell>
 
-                        <TableCell className="font-medium">
+                        <TableCell className="align-top whitespace-normal break-words font-medium">
                           {incident.scenario}
                         </TableCell>
 
-                        <TableCell className="whitespace-nowrap">
+                        <TableCell className="align-top whitespace-normal">
                           {incident.horizon}
                         </TableCell>
 
-                        <TableCell className="max-w-[280px] text-sm text-muted-foreground">
-                          {incident.reason}
+                        <TableCell className="align-top whitespace-normal break-words text-sm text-muted-foreground">
+                          <span className="leading-relaxed">
+                            {incident.reason}
+                          </span>
                         </TableCell>
 
-                        <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                          {new Date(incident.createdAt).toLocaleString("ru-RU")}
+                        <TableCell className="align-top whitespace-normal text-xs text-muted-foreground">
+                          {formatDate(incident.createdAt)}
                         </TableCell>
 
-                        <TableCell className="text-right">
-                          <RecordActionDialog
-                            incidentId={incident.id}
-                            onSubmit={(payload) =>
-                              recordAction({
-                                incidentId: incident.id,
-                                payload,
-                              })
-                            }
-                          />
+                        <TableCell className="align-top text-right">
+                          <div className="flex justify-end">
+                            <RecordActionDialog
+                              incidentId={incident.id}
+                              onSubmit={(payload) =>
+                                recordAction({
+                                  incidentId: incident.id,
+                                  payload,
+                                })
+                              }
+                            />
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
