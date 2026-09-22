@@ -3,7 +3,7 @@ import { JournalPage } from "./pages/JournalPage";
 import { ObjectDetailsPage } from "./pages/ObjectDetailsPage";
 import { ObjectsPage } from "./pages/ObjectsPage";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { ForecastsPage } from "./pages/ForecastsPage";
 import { ThemeProvider } from "./components/ui/theme-provider";
 import { AppLayout } from "./components/AppLayout";
