@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { ObjectRiskMap } from "../components/ObjectRiskMap";
 import {
   Card,
@@ -17,6 +18,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useIncidents, useHotAlerts } from "../hooks/useDispatcher";
 import { RecordActionDialog } from "../components/RecordActionDialog";
+import type { IncidentFilters } from "../api";
+import { ResolveIncidentDialog } from "../components/ResolveIncidentDialog";
 
 const statusLabels: Record<string, string> = {
   OPEN: "Открыт",
@@ -36,17 +39,56 @@ function formatDate(value: string) {
 }
 
 export function DashboardPage() {
+  // 1. Состояние фильтров журнала
+  const [filters, setFilters] = useState<IncidentFilters>({
+    search: "",
+    status: undefined,
+    dateFrom: "",
+    dateTo: "",
+  });
+
+  const [searchInput, setSearchInput] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFilters((prev) => ({
+        ...prev,
+        search: searchInput.trim() || undefined,
+      }));
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  // 2. Передаем фильтры в хук (он перезапросит бэкенд при их изменении)
   const {
     incidents,
     isLoading: isIncidentsLoading,
+    isFetching: isIncidentsFetching,
     recordAction,
-  } = useIncidents();
+  } = useIncidents(filters);
 
   const {
     alerts,
     isLoading: isAlertsLoading,
     acknowledge,
   } = useHotAlerts();
+
+  const handleFilterChange = (key: keyof IncidentFilters, value: unknown) => {
+    setFilters((prev) => ({
+      ...prev,
+      [key]: value === "" ? undefined : value,
+    }));
+  };
+
+  const handleResetFilters = () => {
+    setSearchInput("");
+    setFilters({
+      search: undefined,
+      status: undefined,
+      dateFrom: "",
+      dateTo: "",
+    });
+  };
 
   const openIncidents = incidents.filter(
     (incident) => incident.status === "OPEN",
@@ -71,10 +113,8 @@ export function DashboardPage() {
                 Активные прогнозы
               </CardTitle>
             </CardHeader>
-
             <CardContent>
               <div className="text-3xl font-bold">{alerts.length}</div>
-
               <p className="mt-1 text-xs text-muted-foreground">
                 требуют внимания диспетчера
               </p>
@@ -87,10 +127,8 @@ export function DashboardPage() {
                 Открытые инциденты
               </CardTitle>
             </CardHeader>
-
             <CardContent>
               <div className="text-3xl font-bold">{openIncidents}</div>
-
               <p className="mt-1 text-xs text-muted-foreground">
                 ожидают обработки
               </p>
@@ -103,12 +141,8 @@ export function DashboardPage() {
                 В работе
               </CardTitle>
             </CardHeader>
-
             <CardContent>
-              <div className="text-3xl font-bold">
-                {inProgressIncidents}
-              </div>
-
+              <div className="text-3xl font-bold">{inProgressIncidents}</div>
               <p className="mt-1 text-xs text-muted-foreground">
                 проверяются диспетчерами
               </p>
@@ -121,12 +155,8 @@ export function DashboardPage() {
                 Подтверждено
               </CardTitle>
             </CardHeader>
-
             <CardContent>
-              <div className="text-3xl font-bold">
-                {confirmedIncidents}
-              </div>
-
+              <div className="text-3xl font-bold">{confirmedIncidents}</div>
               <p className="mt-1 text-xs text-muted-foreground">
                 подтверждённых прогнозов
               </p>
@@ -138,34 +168,26 @@ export function DashboardPage() {
         <section className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
           <Card className="min-w-0">
             <CardHeader>
-              <CardTitle className="text-lg">
-                Карта объектов
-              </CardTitle>
-
+              <CardTitle className="text-lg">Карта объектов</CardTitle>
               <p className="text-sm text-muted-foreground">
                 Состояние инженерной инфраструктуры и прогнозируемые риски
               </p>
             </CardHeader>
-
             <CardContent>
               <ObjectRiskMap />
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">
-                Сводка по рискам
-              </CardTitle>
+            <CardHeader className="text-lg">
+              <CardTitle className="text-lg">Сводка по рискам</CardTitle>
             </CardHeader>
-
             <CardContent className="space-y-3">
               <div className="flex items-center justify-between rounded-lg border p-4">
                 <div className="flex items-center gap-3">
                   <span className="h-3 w-3 shrink-0 rounded-full bg-red-500" />
                   <span>Критический риск</span>
                 </div>
-
                 <strong>1</strong>
               </div>
 
@@ -174,7 +196,6 @@ export function DashboardPage() {
                   <span className="h-3 w-3 shrink-0 rounded-full bg-amber-500" />
                   <span>Повышенный риск</span>
                 </div>
-
                 <strong>1</strong>
               </div>
 
@@ -183,7 +204,6 @@ export function DashboardPage() {
                   <span className="h-3 w-3 shrink-0 rounded-full bg-green-500" />
                   <span>Штатное состояние</span>
                 </div>
-
                 <strong>2</strong>
               </div>
             </CardContent>
@@ -195,20 +215,13 @@ export function DashboardPage() {
           <CardHeader>
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <CardTitle className="text-lg">
-                  Активные прогнозы
-                </CardTitle>
-
+                <CardTitle className="text-lg">Активные прогнозы</CardTitle>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Потенциальные инциденты, обнаруженные системой предиктивной
-                  аналитики
+                  Потенциальные инциденты, обнаруженные системой предиктивной аналитики
                 </p>
               </div>
-
               {alerts.length > 0 && (
-                <Badge variant="destructive">
-                  {alerts.length}
-                </Badge>
+                <Badge variant="destructive">{alerts.length}</Badge>
               )}
             </div>
           </CardHeader>
@@ -220,10 +233,7 @@ export function DashboardPage() {
               </p>
             ) : alerts.length === 0 ? (
               <div className="rounded-lg border border-border p-8 text-center">
-                <p className="font-medium">
-                  Инциденты не прогнозируются
-                </p>
-
+                <p className="font-medium">Инциденты не прогнозируются</p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   На текущем горизонте состояние объектов штатное.
                 </p>
@@ -233,32 +243,14 @@ export function DashboardPage() {
                 <Table className="min-w-[1150px] table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[15%]">
-                        Объект
-                      </TableHead>
-
-                      <TableHead className="w-[19%]">
-                        Инцидент
-                      </TableHead>
-
-                      <TableHead className="w-[10%]">
-                        Горизонт
-                      </TableHead>
-
-                      <TableHead className="w-[21%]">
-                        Причина
-                      </TableHead>
-
-                      <TableHead className="w-[25%]">
-                        Рекомендация
-                      </TableHead>
-
-                      <TableHead className="w-[10%] text-right">
-                        Действие
-                      </TableHead>
+                      <TableHead className="w-[15%]">Объект</TableHead>
+                      <TableHead className="w-[19%]">Инцидент</TableHead>
+                      <TableHead className="w-[10%]">Горизонт</TableHead>
+                      <TableHead className="w-[21%]">Причина</TableHead>
+                      <TableHead className="w-[25%]">Рекомендация</TableHead>
+                      <TableHead className="w-[10%] text-right">Действие</TableHead>
                     </TableRow>
                   </TableHeader>
-
                   <TableBody>
                     {alerts.map((alert) => (
                       <TableRow key={alert.id}>
@@ -266,12 +258,10 @@ export function DashboardPage() {
                           <div className="break-words font-medium">
                             {alert.dispatcherName}
                           </div>
-
                           <div className="mt-1 text-xs text-muted-foreground">
                             Объект #{alert.systemObjectId}
                           </div>
                         </TableCell>
-
                         <TableCell className="align-top whitespace-normal">
                           <Badge
                             variant="destructive"
@@ -280,33 +270,27 @@ export function DashboardPage() {
                             {alert.scenario}
                           </Badge>
                         </TableCell>
-
                         <TableCell className="align-top font-medium">
                           <span className="whitespace-normal">
                             {alert.horizon}
                           </span>
                         </TableCell>
-
                         <TableCell className="align-top whitespace-normal break-words">
                           <p className="text-sm leading-relaxed">
                             {alert.reason}
                           </p>
                         </TableCell>
-
                         <TableCell className="align-top whitespace-normal break-words">
                           <p className="text-sm leading-relaxed text-muted-foreground">
                             {alert.recommendation ?? "—"}
                           </p>
                         </TableCell>
-
                         <TableCell className="align-top text-right">
                           <Button
                             size="sm"
                             variant="secondary"
                             className="whitespace-nowrap"
-                            onClick={() =>
-                              acknowledge(String(alert.id))
-                            }
+                            onClick={() => acknowledge(String(alert.id))}
                           >
                             Квитировать
                           </Button>
@@ -320,63 +304,121 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Журнал */}
+        {/* Журнал инцидентов с фильтрацией */}
         <Card className="min-w-0">
-          <CardHeader>
+          <CardHeader className="space-y-4">
             <div>
-              <CardTitle className="text-lg">
-                Журнал инцидентов
-              </CardTitle>
-
+              <CardTitle className="text-lg">Журнал инцидентов</CardTitle>
               <p className="mt-1 text-sm text-muted-foreground">
                 История прогнозов и результаты их обработки
               </p>
             </div>
+
+            {/* ПАНЕЛЬ ФИЛЬТРОВ */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5 rounded-lg border bg-card/50 p-3 text-sm">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Поиск
+                </label>
+                <input
+                  type="text"
+                  placeholder="Сценарий, объект, причина..."
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Статус
+                </label>
+                <select
+                  value={filters.status || ""}
+                  onChange={(e) => handleFilterChange("status", e.target.value)}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <option value="">Все статусы</option>
+                  <option value="OPEN">Открыт</option>
+                  <option value="IN_PROGRESS">В работе</option>
+                  <option value="CONFIRMED">Подтверждён</option>
+                  <option value="FALSE_POSITIVE">Ложное срабатывание</option>
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Период от
+                </label>
+                <input
+                  type="date"
+                  value={filters.dateFrom || ""}
+                  onChange={(e) => handleFilterChange("dateFrom", e.target.value)}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Период до
+                </label>
+                <input
+                  type="date"
+                  value={filters.dateTo || ""}
+                  onChange={(e) => handleFilterChange("dateTo", e.target.value)}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+              </div>
+
+              <div className="flex items-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleResetFilters}
+                  className="h-9 w-full"
+                >
+                  Сбросить
+                </Button>
+              </div>
+            </div>
           </CardHeader>
 
-          <CardContent>
+          <CardContent className="relative min-h-[300px]">
+            {isIncidentsFetching && !isIncidentsLoading && (
+              <div className="absolute top-2 right-6 z-10 flex items-center gap-2 rounded-full bg-background/80 px-2.5 py-1 text-xs text-muted-foreground backdrop-blur border shadow-sm">
+                <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
+                Обновление...
+              </div>
+            )}
+
             {isIncidentsLoading ? (
-              <p className="text-sm text-muted-foreground">
-                Загрузка журнала...
-              </p>
+              <div className="flex h-48 items-center justify-center">
+                <p className="text-sm text-muted-foreground animate-pulse">
+                  Загрузка журнала...
+                </p>
+              </div>
             ) : incidents.length === 0 ? (
               <div className="rounded-lg border p-8 text-center">
                 <p className="text-sm text-muted-foreground">
-                  В журнале пока нет записей.
+                  По заданным фильтрам записей не найдено.
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-lg border">
+              <div
+                className={`overflow-x-auto rounded-lg border transition-opacity duration-200 ${
+                  isIncidentsFetching ? "opacity-50 pointer-events-none" : "opacity-100"
+                }`}
+              >
                 <Table className="min-w-[1200px] table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[8%]">
-                        Объект
-                      </TableHead>
-
-                      <TableHead className="w-[11%]">
-                        Статус
-                      </TableHead>
-
-                      <TableHead className="w-[19%]">
-                        Инцидент
-                      </TableHead>
-
-                      <TableHead className="w-[10%]">
-                        Горизонт
-                      </TableHead>
-
-                      <TableHead className="w-[23%]">
-                        Причина
-                      </TableHead>
-
-                      <TableHead className="w-[13%]">
-                        Создан
-                      </TableHead>
-
-                      <TableHead className="w-[16%] text-right">
-                        Действие
-                      </TableHead>
+                      <TableHead className="w-[8%]">Объект</TableHead>
+                      <TableHead className="w-[11%]">Статус</TableHead>
+                      <TableHead className="w-[19%]">Инцидент</TableHead>
+                      <TableHead className="w-[10%]">Горизонт</TableHead>
+                      <TableHead className="w-[23%]">Причина</TableHead>
+                      <TableHead className="w-[13%]">Создан</TableHead>
+                      <TableHead className="w-[16%] text-right">Действие</TableHead>
                     </TableRow>
                   </TableHeader>
 
@@ -390,14 +432,13 @@ export function DashboardPage() {
                         <TableCell className="align-top">
                           <Badge
                             variant={
-                              incident.status === "OPEN"
+                              incident.status === "OPEN" || incident.status === "CONFIRMED"
                                 ? "destructive"
                                 : "secondary"
                             }
                             className="whitespace-normal"
                           >
-                            {statusLabels[incident.status] ??
-                              incident.status}
+                            {statusLabels[incident.status] ?? incident.status}
                           </Badge>
                         </TableCell>
 
@@ -419,17 +460,35 @@ export function DashboardPage() {
                           {formatDate(incident.createdAt)}
                         </TableCell>
 
+                        {/* УСЛОВНЫЙ РЕНДЕРИНГ ДЕЙСТВИЙ */}
                         <TableCell className="align-top text-right">
-                          <div className="flex justify-end">
-                            <RecordActionDialog
-                              incidentId={incident.id}
-                              onSubmit={(payload) =>
-                                recordAction({
-                                  incidentId: incident.id,
-                                  payload,
-                                })
-                              }
-                            />
+                          <div className="flex justify-end items-center">
+                            {incident.status === "IN_PROGRESS" ? (
+                              /* ОДНА КНОПКА «Завершить заявку», открывающая модалку */
+                              <ResolveIncidentDialog
+                                incidentId={incident.id}
+                                onSubmit={async (payload) => {
+                                  await recordAction({
+                                    incidentId: incident.id,
+                                    payload,
+                                  });
+                                }}
+                              />
+                            ) : incident.status === "OPEN" ? (
+                              <RecordActionDialog
+                                incidentId={incident.id}
+                                onSubmit={(payload) =>
+                                  recordAction({
+                                    incidentId: incident.id,
+                                    payload,
+                                  })
+                                }
+                              />
+                            ) : (
+                              <span className="text-xs text-muted-foreground px-2 py-1">
+                                Закрыт
+                              </span>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>

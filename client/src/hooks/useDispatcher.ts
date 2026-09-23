@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { authApi, incidentsApi, alertsApi } from '../api';
+import type { IncidentFilters } from '../api'
 import type {
     RecordActionPayload,
     User,
@@ -95,13 +96,15 @@ export function useAuth() {
     };
 }
 
-export function useIncidents() {
+export function useIncidents(filters?: IncidentFilters) {
     const queryClient = useQueryClient();
 
     const incidentsQuery = useQuery({
-        queryKey: QUERY_KEYS.incidents,
-        queryFn: incidentsApi.getAll,
+        // 1. Добавляем filters в ключ — при изменении фильтров хук сам дернет бэкенд
+        queryKey: [QUERY_KEYS.incidents, filters],
+        queryFn: () => incidentsApi.getAll(filters),
         staleTime: 30 * 1000,
+        placeholderData: keepPreviousData, // <-- Таблица не исчезнет во время запроса
         enabled: !USE_MOCKS,
     });
 
@@ -115,8 +118,9 @@ export function useIncidents() {
         }) => incidentsApi.recordAction(incidentId, payload),
 
         onSuccess: () => {
+            // Инвалидирует все запросы инцидентов вне зависимости от примененных фильтров
             queryClient.invalidateQueries({
-                queryKey: QUERY_KEYS.incidents,
+                queryKey: [QUERY_KEYS.incidents],
             });
         },
     });
@@ -133,6 +137,7 @@ export function useIncidents() {
     return {
         incidents: incidentsQuery.data ?? [],
         isLoading: incidentsQuery.isLoading,
+        isFetching: incidentsQuery.isFetching, // <-- пригодится для плавной индикации
         recordAction: recordActionMutation.mutateAsync,
         isRecording: recordActionMutation.isPending,
     };

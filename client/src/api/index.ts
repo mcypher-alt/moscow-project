@@ -33,9 +33,29 @@ export const authApi = {
     },
 };
 
+export interface IncidentFilters {
+    status?: string;
+    systemObjectId?: number;
+    search?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    take?: number;
+    skip?: number;
+}
+
 export const incidentsApi = {
-    getAll: async (): Promise<Incident[]> => {
-        const response = await api.get<Incident[]>('/incidents');
+    getAll: async (filters: IncidentFilters = {}): Promise<Incident[]> => {
+        // Удаляем пустые строки, undefined и null, чтобы в URL не летели пустые ключи (?status=&search=)
+        const cleanParams = Object.entries(filters).reduce<Record<string, unknown>>((acc, [key, val]) => {
+            if (val !== undefined && val !== '' && val !== null) {
+                acc[key] = val;
+            }
+            return acc;
+        }, {});
+
+        const response = await api.get<Incident[]>('/incidents', {
+            params: cleanParams,
+        });
         return response.data;
     },
 
@@ -52,7 +72,7 @@ export const incidentsApi = {
 };
 
 export const alertsApi = {
-    getHot: async (limit = 10): Promise<HotAlert[]> => {
+    getHot: async (limit = 50): Promise<HotAlert[]> => {
         const response = await api.get<HotAlert[]>(`/alerts/hot?limit=${limit}`);
         return response.data;
     },

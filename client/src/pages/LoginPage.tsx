@@ -53,7 +53,7 @@ export function LoginPage() {
                         <div className="space-y-2">
                             <label className="text-sm font-medium">Имя пользователя / Табельный номер</label>
                             <Input
-                                placeholder="ivanov_aa"
+                                placeholder="Email или табельный номер"
                                 value={login}
                                 onChange={(e) => setLogin(e.target.value)}
                                 required

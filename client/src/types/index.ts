@@ -63,6 +63,7 @@ export interface RecordActionPayload {
   decision: string;
   comment?: string;
   timestamp?: string;
+  status?: 'OPEN' | 'IN_PROGRESS' | 'CONFIRMED' | 'FALSE_POSITIVE' | string;
 }
 
 export interface HotAlert {
