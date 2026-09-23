@@ -274,11 +274,23 @@ export function DashboardPage() {
                           </div>
                         </TableCell>
                         <TableCell className="align-top whitespace-normal">
-                          <div className="flex items-start gap-2">
-                            <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-red-500 animate-pulse" />
-                            <span className="font-medium text-sm leading-snug break-words">
-                              {alert.scenario}
-                            </span>
+                          <div className="space-y-1">
+                            <div className="flex items-start gap-2">
+                              <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-red-500 animate-pulse" />
+                              <span className="font-medium text-sm leading-snug break-words">
+                                {alert.scenario}
+                              </span>
+                            </div>
+
+                            {/* Процент вероятности по ТЗ */}
+                            {alert.probability != null && (
+                              <div className="flex items-center gap-1.5 pl-4">
+                                <span className="text-[11px] text-muted-foreground">Вероятность:</span>
+                                <Badge variant="outline" className="text-[11px] font-mono text-destructive border-destructive/40 py-0 px-1.5">
+                                  {Math.round(alert.probability * 100)}%
+                                </Badge>
+                              </div>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="align-top font-medium">

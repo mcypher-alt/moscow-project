@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router';
 import {
     MapContainer,
     TileLayer,
@@ -7,59 +8,36 @@ import {
     useMap,
 } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
+import { useObjects } from '../hooks/useDispatcher';
 
 type RiskLevel = 'normal' | 'warning' | 'critical';
 type FilterOption = 'all' | RiskLevel;
 
-interface MapObject {
+interface MapObjectItem {
     id: number;
     name: string;
-    address: string;
+    kindLabel: string;
     lat: number;
     lng: number;
     risk: RiskLevel;
-    incident?: string;
-    horizon?: string;
+    incident?: string | null;
+    horizon?: string | null;
 }
 
-const OBJECTS: MapObject[] = [
-    {
-        id: 5122,
-        name: 'ДУ объект Альфа',
-        address: 'Инженерный коллектор №5122',
-        lat: 55.7558,
-        lng: 37.6173,
-        risk: 'critical',
-        incident: 'Перегрев подшипника насоса',
-        horizon: '24–48 часов',
-    },
-    {
-        id: 3814,
-        name: 'Коллектор №3814',
-        address: 'Кабельный отсек',
-        lat: 55.766,
-        lng: 37.59,
-        risk: 'warning',
-        incident: 'Повышенный пожарный риск',
-        horizon: '24 часа',
-    },
-    {
-        id: 4201,
-        name: 'Коллектор №4201',
-        address: 'Насосная станция',
-        lat: 55.742,
-        lng: 37.64,
-        risk: 'normal',
-    },
-    {
-        id: 2760,
-        name: 'Коллектор №2760',
-        address: 'Вентиляционная шахта',
-        lat: 55.78,
-        lng: 37.63,
-        risk: 'normal',
-    },
-];
+interface RawObjectData {
+    id: number;
+    name: string;
+    kindLabel?: string;
+    objectKind?: string;
+    activeIncident?: string | null;
+    incident?: {
+        scenario?: string;
+        horizon?: string;
+    } | null;
+    horizon?: string | null;
+    lat?: number;
+    lng?: number;
+}
 
 const riskColors: Record<RiskLevel, string> = {
     normal: '#22c55e',
@@ -73,6 +51,15 @@ const riskLabels: Record<RiskLevel, string> = {
     critical: 'Критический риск',
 };
 
+// Стабильные псевдослучайные координаты в границах Москвы по ID объекта
+function getObjectCoordinates(id: number): [number, number] {
+    const centerLat = 55.751244;
+    const centerLng = 37.618423;
+    const latOffset = (((id * 9301 + 49297) % 233280) / 233280 - 0.5) * 0.12;
+    const lngOffset = (((id * 49297 + 9301) % 233280) / 233280 - 0.5) * 0.22;
+    return [centerLat + latOffset, centerLng + lngOffset];
+}
+
 function MapResizer() {
     const map = useMap();
     useEffect(() => {
@@ -85,21 +72,57 @@ function MapResizer() {
 }
 
 export const ObjectRiskMap = memo(function ObjectRiskMap() {
+    const navigate = useNavigate();
     const [selectedRisk, setSelectedRisk] = useState<FilterOption>('all');
 
-    // Фильтрация объектов по выбранной кнопке
-    const filteredObjects = useMemo(() => {
-        if (selectedRisk === 'all') return OBJECTS;
-        return OBJECTS.filter((obj) => obj.risk === selectedRisk);
-    }, [selectedRisk]);
+    // 1. Тянем реальные данные из PostgreSQL
+    const { data: rawObjects = [], isLoading } = useObjects();
 
-    // Подсчет объектов по группам для бейджей на кнопках
+    // 2. Преобразуем реальные объекты в формат карты
+    const mapObjects: MapObjectItem[] = useMemo(() => {
+        return rawObjects.map((obj: RawObjectData) => {
+            const hasIncident = Boolean(obj.activeIncident || obj.incident);
+            const risk: RiskLevel = hasIncident ? 'critical' : 'normal';
+            const [lat, lng] = obj.lat && obj.lng 
+                ? [obj.lat, obj.lng] 
+                : getObjectCoordinates(obj.id);
+
+            return {
+                id: obj.id,
+                name: obj.name,
+                kindLabel: obj.kindLabel || obj.objectKind || 'Узел инфраструктуры',
+                lat,
+                lng,
+                risk,
+                incident: obj.activeIncident || obj.incident?.scenario || null,
+                horizon: obj.horizon || obj.incident?.horizon || null,
+            };
+        });
+    }, [rawObjects]);
+
+    // 3. Фильтрация маркеров
+    const filteredObjects = useMemo(() => {
+        if (selectedRisk === 'all') return mapObjects;
+        return mapObjects.filter((obj) => obj.risk === selectedRisk);
+    }, [mapObjects, selectedRisk]);
+
+    // 4. Подсчет счетчиков на кнопках
     const counts = useMemo(() => ({
-        all: OBJECTS.length,
-        critical: OBJECTS.filter((o) => o.risk === 'critical').length,
-        warning: OBJECTS.filter((o) => o.risk === 'warning').length,
-        normal: OBJECTS.filter((o) => o.risk === 'normal').length,
-    }), []);
+        all: mapObjects.length,
+        critical: mapObjects.filter((o) => o.risk === 'critical').length,
+        warning: mapObjects.filter((o) => o.risk === 'warning').length,
+        normal: mapObjects.filter((o) => o.risk === 'normal').length,
+    }), [mapObjects]);
+
+    if (isLoading) {
+        return (
+            <div className="flex h-[460px] items-center justify-center rounded-xl border bg-card">
+                <p className="text-sm text-muted-foreground animate-pulse">
+                    Синхронизация объектов на карте...
+                </p>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-3">
@@ -172,7 +195,7 @@ export const ObjectRiskMap = memo(function ObjectRiskMap() {
             {/* Контейнер карты */}
             <div className="overflow-hidden rounded-xl border border-border isolate">
                 <MapContainer
-                    center={[55.7558, 37.6173]}
+                    center={[55.751244, 37.618423]}
                     zoom={11}
                     scrollWheelZoom={false}
                     className="h-[420px] w-full bg-neutral-950"
@@ -201,11 +224,11 @@ export const ObjectRiskMap = memo(function ObjectRiskMap() {
                                 }}
                             >
                                 <Popup>
-                                    <div className="min-w-[220px] space-y-1.5 p-1 text-neutral-900">
+                                    <div className="min-w-[230px] space-y-2 p-1 text-neutral-900">
                                         <div className="border-b pb-1 font-semibold text-sm">
                                             {object.name}
                                             <span className="block text-xs font-normal text-neutral-500">
-                                                {object.address} (#{object.id})
+                                                {object.kindLabel} (#{object.id})
                                             </span>
                                         </div>
 
@@ -220,12 +243,22 @@ export const ObjectRiskMap = memo(function ObjectRiskMap() {
                                                     <span className="text-neutral-500">Риск:</span>{' '}
                                                     <span className="font-medium text-red-600">{object.incident}</span>
                                                 </div>
-                                                <div>
-                                                    <span className="text-neutral-500">Горизонт:</span>{' '}
-                                                    <span className="font-medium">{object.horizon}</span>
-                                                </div>
+                                                {object.horizon && (
+                                                    <div>
+                                                        <span className="text-neutral-500">Горизонт:</span>{' '}
+                                                        <span className="font-medium">{object.horizon}</span>
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
+
+                                        <button
+                                            type="button"
+                                            onClick={() => navigate(`/objects/${object.id}`)}
+                                            className="w-full mt-1 rounded bg-neutral-900 py-1 text-center text-xs font-medium text-white hover:bg-neutral-800 transition"
+                                        >
+                                            Открыть паспорт объекта →
+                                        </button>
                                     </div>
                                 </Popup>
                             </CircleMarker>

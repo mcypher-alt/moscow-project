@@ -46,12 +46,34 @@ router.post('/:id/ack', authenticateJwt,
 
 // 3. Стрим SSE для живых обновлений
 router.get('/stream', (req: Request, res: Response) => {
+    // 1. CORS-заголовки
+    const origin = req.headers.origin;
+    if (origin) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+    } else {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+
+    // ❗️ ВОТ ЭТА СТРОКА: глушит блокировку от Helmet для стрима
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
+    // 2. Стандартные заголовки SSE
     res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
 
+    // 3. Немедленная отправка заголовков в сокет
+    res.flushHeaders();
+
+    // Первичное подтверждение рукопожатия
     res.write(`data: ${JSON.stringify({ status: 'CONNECTED' })}\n\n`);
+
+    // 4. Heartbeat (каждые 15 сек)
+    const keepAliveTimer = setInterval(() => {
+        res.write(': keep-alive\n\n');
+    }, 15000);
 
     const onNewAlert = (alert: any) => {
         res.write(`event: hot_alert\ndata: ${JSON.stringify(alert)}\n\n`);
@@ -65,6 +87,7 @@ router.get('/stream', (req: Request, res: Response) => {
     alertEvents.on('alert_resolved', onResolveAlert);
 
     req.on('close', () => {
+        clearInterval(keepAliveTimer);
         alertEvents.off('hot_alert', onNewAlert);
         alertEvents.off('alert_resolved', onResolveAlert);
         res.end();

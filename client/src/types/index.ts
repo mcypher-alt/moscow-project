@@ -72,6 +72,7 @@ export interface HotAlert {
   systemObjectId: number;
   dispatcherName: string;
 
+  probability?: number;
   scenario: string;
   horizon: string;
   reason: string;

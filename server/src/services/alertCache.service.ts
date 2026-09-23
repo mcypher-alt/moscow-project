@@ -12,6 +12,7 @@ export interface HotAlertPayload {
     id: string | number;
     systemObjectId: number;
     dispatcherName: string;
+    probability?: number;
     scenario: string;         // Тип инцидента (что сломается)
     horizon: string;          // Временной горизонт наступления
     reason: string;           // Причина / триггер

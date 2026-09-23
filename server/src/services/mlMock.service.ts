@@ -38,6 +38,7 @@ export interface MLPositiveResponse {
   isIncidentPredicted: true;
   systemObjectId: number;
   evaluatedAt: string;
+  probability: number;
   incidentType: string;    // Название аварии/сбоя
   horizon: string;         // Срок прогноза (например, "24-48 часов")
   reason: string;          // Физическая причина или триггер
@@ -59,8 +60,10 @@ export async function mockMLInference(payload: MLInferenceRequest): Promise<MLIn
   // 1. Поиск аномальных показаний по каналам
   const suspiciousChannels = payload.channels.filter((ch) => {
     return ch.readings.some((r) => {
-      const isHighTemp = ch.sensorType?.toLowerCase().includes('температур') && (r.numericValue ?? 0) > 60;
-      const isSmoke = ch.sensorType?.toLowerCase().includes('дым') && r.isAlarm;
+      const isHighTemp = (ch.sensorType?.toLowerCase().includes('температур') ||
+                ch.sensorType?.toLowerCase().includes('temp')) && (r.numericValue ?? 0) > 60;
+      const isSmoke = (ch.sensorType?.toLowerCase().includes('дым') ||
+                ch.sensorType?.toLowerCase().includes('smoke')) && r.isAlarm;
       return r.isAlarm || isHighTemp || isSmoke;
     });
   });
@@ -85,6 +88,7 @@ export async function mockMLInference(payload: MLInferenceRequest): Promise<MLIn
       isIncidentPredicted: true,
       systemObjectId: payload.systemObjectId,
       evaluatedAt,
+      probability: 0.92,
       incidentType: 'Пожарная опасность (перегрев оборудования)',
       horizon: '24-48 часов',
       reason: `Резкий рост показаний датчика "${fireChannel.sensorName}" (${lastReading?.rawValue ?? 'н/д'}) с флагом тревоги`,
@@ -101,6 +105,7 @@ export async function mockMLInference(payload: MLInferenceRequest): Promise<MLIn
       isIncidentPredicted: true,
       systemObjectId: payload.systemObjectId,
       evaluatedAt,
+      probability: 0.78,
       incidentType: 'Несанкционированное проникновение в техпомещение',
       horizon: '2-4 часа',
       reason: `Срабатывание охранного датчика "${guardChannel.sensorName}" во внерабочее время`,
