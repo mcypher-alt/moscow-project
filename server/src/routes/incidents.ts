@@ -9,7 +9,7 @@ const router = Router();
 router.get(
     '/',
     authenticateJwt,
-    requireRoles(Role.DISPATCHER, Role.ANALYST, Role.ADMIN),
+    requireRoles(Role.DISPATCHER, Role.ADMIN),
     async (req: Request, res: Response) => {
         try {
             const { status, systemObjectId, search, dateFrom, dateTo } = req.query;

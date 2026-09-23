@@ -25,6 +25,8 @@ interface Props {
     incident?: Incident;
     onSubmit: (payload: RecordActionPayload) => Promise<unknown>;
     disabled?: boolean;
+    triggerText?: string;
+    triggerVariant?: 'default' | 'outline' | 'secondary' | 'ghost';
 }
 
 const ACTION_PRESETS = [
@@ -34,7 +36,14 @@ const ACTION_PRESETS = [
     { value: 'INSPECTION_SCHEDULED', label: 'Включение в план ближайшего техобслуживания' },
 ];
 
-export function RecordActionDialog({ incidentId, incident, onSubmit, disabled }: Props) {
+export function RecordActionDialog({
+    incidentId,
+    incident,
+    onSubmit,
+    disabled,
+    triggerText = 'Зафиксировать действие',
+    triggerVariant = 'outline',
+}: Props) {
     const [open, setOpen] = useState(false);
     const [decision, setDecision] = useState('DISPATCH_EMERGENCY_TEAM');
     const [comment, setComment] = useState('');
@@ -110,10 +119,10 @@ export function RecordActionDialog({ incidentId, incident, onSubmit, disabled }:
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogTrigger
-                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                className={buttonVariants({ variant: triggerVariant, size: 'sm' })}
                 disabled={disabled}
             >
-                Зафиксировать действие
+                {triggerText}
             </DialogTrigger>
             <DialogContent className="sm:max-w-[560px]">
                 <form onSubmit={handleSubmit}>
@@ -127,15 +136,29 @@ export function RecordActionDialog({ incidentId, incident, onSubmit, disabled }:
                     <div className="grid gap-4 py-4">
                         <div className="grid gap-2">
                             <Label htmlFor="action-decision">Принимаемое оперативное решение</Label>
-                            <Select value={decision} onValueChange={(val) => {
-                                if (val) handleDecisionChange(val);
-                            }}>
-                                <SelectTrigger id="action-decision">
+                            <Select 
+                                value={decision} 
+                                onValueChange={(val) => {
+                                    if (val) handleDecisionChange(val);
+                                }}
+                            >
+                                {/* 1. Даем триггеру автовысоту и отключаем обрезку line-clamp */}
+                                <SelectTrigger 
+                                    id="action-decision" 
+                                    className="h-auto min-h-10 py-2.5 text-left whitespace-normal leading-snug [&>span]:line-clamp-none"
+                                >
                                     <SelectValue placeholder="Выберите действие" />
                                 </SelectTrigger>
-                                <SelectContent>
+
+                                {/* 2. Контенту задаем полную ширину триггера */}
+                                <SelectContent className="w-[var(--radix-select-trigger-width)]">
                                     {ACTION_PRESETS.map((preset) => (
-                                        <SelectItem key={preset.value} value={preset.value}>
+                                        /* 3. Элементам списка разрешаем перенос строк (whitespace-normal) */
+                                        <SelectItem 
+                                            key={preset.value} 
+                                            value={preset.value}
+                                            className="py-2.5 text-xs sm:text-sm whitespace-normal leading-snug cursor-pointer"
+                                        >
                                             {preset.label}
                                         </SelectItem>
                                     ))}

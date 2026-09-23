@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { authApi, incidentsApi, alertsApi } from '../api';
-import type { IncidentFilters } from '../api'
+import { authApi, incidentsApi, alertsApi, objectsApi } from '../api';
+import type { IncidentFilters } from '../api';
 import type {
     RecordActionPayload,
     User,
@@ -15,6 +15,7 @@ export const QUERY_KEYS = {
     auth: ['auth', 'me'] as const,
     incidents: ['incidents'] as const,
     hotAlerts: ['alerts', 'hot'] as const,
+    objects: ['objects'] as const,
 };
 
 const mockUser: User = {
@@ -96,15 +97,17 @@ export function useAuth() {
     };
 }
 
+
+
 export function useIncidents(filters?: IncidentFilters) {
     const queryClient = useQueryClient();
 
     const incidentsQuery = useQuery({
-        // 1. Добавляем filters в ключ — при изменении фильтров хук сам дернет бэкенд
-        queryKey: [QUERY_KEYS.incidents, filters],
+        // Разворачиваем префикс через spread! Ключ будет: ['incidents', { search: ... }]
+        queryKey: [...QUERY_KEYS.incidents, filters],
         queryFn: () => incidentsApi.getAll(filters),
         staleTime: 30 * 1000,
-        placeholderData: keepPreviousData, // <-- Таблица не исчезнет во время запроса
+        placeholderData: keepPreviousData,
         enabled: !USE_MOCKS,
     });
 
@@ -118,10 +121,13 @@ export function useIncidents(filters?: IncidentFilters) {
         }) => incidentsApi.recordAction(incidentId, payload),
 
         onSuccess: () => {
-            // Инвалидирует все запросы инцидентов вне зависимости от примененных фильтров
+            // Инвалидируем по плоскому префиксу ['incidents']
             queryClient.invalidateQueries({
-                queryKey: [QUERY_KEYS.incidents],
+                queryKey: QUERY_KEYS.incidents,
             });
+        },
+        onError: (err) => {
+            console.error('[recordActionMutation Error]:', err);
         },
     });
 
@@ -137,17 +143,34 @@ export function useIncidents(filters?: IncidentFilters) {
     return {
         incidents: incidentsQuery.data ?? [],
         isLoading: incidentsQuery.isLoading,
-        isFetching: incidentsQuery.isFetching, // <-- пригодится для плавной индикации
+        isFetching: incidentsQuery.isFetching,
         recordAction: recordActionMutation.mutateAsync,
         isRecording: recordActionMutation.isPending,
     };
+}
+
+export function useObjectDetails(id: string | number | undefined) {
+    return useQuery({
+        queryKey: [...QUERY_KEYS.objects, String(id)],
+        queryFn: () => objectsApi.getById(id!),
+        enabled: Boolean(id), // Запрос не пойдет, пока id не определен из useParams
+        staleTime: 30 * 1000,
+    });
+}
+
+export function useObjects() {
+    return useQuery({
+        queryKey: QUERY_KEYS.objects, // ключ ['objects']
+        queryFn: objectsApi.getAll,
+        staleTime: 30 * 1000,
+    });
 }
 
 export function useHotAlerts(limit = 10) {
     const queryClient = useQueryClient();
 
     const alertsQuery = useQuery({
-        queryKey: QUERY_KEYS.hotAlerts,
+        queryKey: [...QUERY_KEYS.hotAlerts, limit],
         queryFn: () => alertsApi.getHot(limit),
         staleTime: Infinity,
         enabled: !USE_MOCKS,
@@ -156,12 +179,17 @@ export function useHotAlerts(limit = 10) {
     const ackMutation = useMutation({
         mutationFn: alertsApi.acknowledge,
         onSuccess: () => {
+            // Инвалидируем горячие алерты (Redis)
             queryClient.invalidateQueries({
                 queryKey: QUERY_KEYS.hotAlerts,
             });
+            // Инвалидируем инциденты (Postgres) — найдет ['incidents', filters]
             queryClient.invalidateQueries({
                 queryKey: QUERY_KEYS.incidents,
             });
+        },
+        onError: (err) => {
+            console.error('[ackMutation Error] Ошибка квитирования:', err);
         },
     });
 
@@ -169,7 +197,6 @@ export function useHotAlerts(limit = 10) {
         if (USE_MOCKS) return;
 
         const streamUrl = alertsApi.getStreamUrl();
-
         const eventSource = new EventSource(streamUrl, {
             withCredentials: true,
         });

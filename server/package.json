@@ -7,7 +7,7 @@
     "seed:dispatchers": "tsx prisma/seed-dispatchers.ts",
     "seed:csv": "tsx prisma/seed-csv.ts",
     "seed:redis": "tsx prisma/seed-redis.ts",
-    "seed:all": "npm run seed:dispatchers && npm run seed:csv && npm run seed:redis"
+    "seed:all": "npm run seed:dispatchers && npm run seed:csv"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

@@ -6,6 +6,7 @@ import type {
     DispatcherAction,
     RecordActionPayload,
     HotAlert,
+    SystemObjectDetails,
 } from '../types';
 
 export const api = axios.create({
@@ -89,5 +90,17 @@ export const alertsApi = {
     //sse
     getStreamUrl: (): string => {
         return `${api.defaults.baseURL}/alerts/stream`;
+    },
+};
+
+export const objectsApi = {
+    getById: async (id: string | number): Promise<SystemObjectDetails> => {
+        const { data } = await api.get<SystemObjectDetails>(`/objects/${id}`);
+        return data;
+    },
+
+    getAll: async (): Promise<SystemObjectDetails[]> => {
+        const { data } = await api.get<SystemObjectDetails[]>('/objects');
+        return data;
     },
 };

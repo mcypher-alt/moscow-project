@@ -1,11 +1,15 @@
 import { Router, Request, Response } from 'express';
 import { getTopHotAlerts, resolveHotAlert, alertEvents } from '../services/alertCache.service.js';
 import { acknowledgeIncident } from '../services/incident.service.js';
+import { authenticateJwt, requireRoles } from '../middlewares/auth.js';
+import { Role } from '@prisma/client';
 
 const router = Router();
 
 // 1. Первоначальная загрузка активных аварий при открытии страницы
-router.get('/hot', async (req: Request, res: Response) => {
+router.get('/hot', authenticateJwt,
+    requireRoles(Role.DISPATCHER, Role.ADMIN),
+    async (req: Request, res: Response) => {
     try {
         const limit = Number(req.query.limit) || 10;
         const alerts = await getTopHotAlerts(limit);
@@ -16,7 +20,9 @@ router.get('/hot', async (req: Request, res: Response) => {
 });
 
 // 2. Квитирование (снятие) аварии диспетчером
-router.post('/:id/ack', async (req: Request, res: Response) => {
+router.post('/:id/ack', authenticateJwt,
+    requireRoles(Role.DISPATCHER, Role.ANALYST, Role.ADMIN),
+    async (req: Request, res: Response) => {
     const { id } = req.params;
 
     if (!id) {
@@ -25,6 +31,13 @@ router.post('/:id/ack', async (req: Request, res: Response) => {
 
     try {
         const result = await acknowledgeIncident(id);
+
+        if (!result) {
+            return res.status(404).json({
+                error: `Инцидент с ID ${id} не найден`,
+            });
+        }
+
         res.json({ success: true, acknowledgedId: result.id });
     } catch (err) {
         res.status(500).json({ error: 'Не удалось квитировать инцидент' });

@@ -84,3 +84,39 @@ export interface HotAlert {
 export interface AlertResolvedEvent {
   id: string;
 }
+
+// src/types/index.ts (или src/types.ts)
+
+export interface ObjectSensorItem {
+  id: number;
+  systemTag: string;
+  name: string;
+  systemType: string;
+  sensorType: string | null;
+}
+
+export interface ObjectActiveIncident {
+  id: string;
+  scenario: string;
+  horizon: string;
+  reason: string;
+  recommendation: string | null;
+}
+
+export interface ObjectParentNode {
+  id: number;
+  name: string;
+}
+
+export interface SystemObjectDetails {
+  id: number;
+  name: string;
+  level: number;
+  objectKind: string;
+  kindLabel: string;
+  parent: ObjectParentNode | null;
+  childrenCount: number;
+  status: 'CRITICAL' | 'NORMAL';
+  incident: ObjectActiveIncident | null;
+  sensors: ObjectSensorItem[];
+}

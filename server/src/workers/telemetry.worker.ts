@@ -8,7 +8,6 @@ let lastProcessedEventId: bigint = 0n;
 
 const BATCH_SIZE = 50;
 const TICK_INTERVAL_MS = 2000;
-const CRITICAL_THRESHOLD = 0.70;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -39,7 +38,7 @@ async function processTelemetryCycle() {
     lastProcessedEventId = lastEvent.id;
   }
 
-  // 2. Безопасная группировка по объектам диспетчеризации
+  // 2. Группировка событий по объектам диспетчеризации
   type EventItem = (typeof events)[number];
   const groupedByObject = new Map<number, EventItem[]>();
 
@@ -54,14 +53,14 @@ async function processTelemetryCycle() {
     }
   }
 
-  // 3. Формирование контрактов для каждого объекта
+  // 3. Формирование пакетов каналов и вызов ML-инференса для каждого объекта
   for (const [objectId, objectEvents] of groupedByObject) {
     const firstObjectEvent = objectEvents[0];
     if (!firstObjectEvent) continue;
 
     const systemObject = firstObjectEvent.channel.systemObject;
 
-    // Группировка событий по датчикам
+    // Группировка событий по датчикам (каналам) объекта
     const channelsMap = new Map<number, EventItem[]>();
     for (const ev of objectEvents) {
       const channelGroup = channelsMap.get(ev.channelId);
@@ -72,7 +71,6 @@ async function processTelemetryCycle() {
       }
     }
 
-    // Собираем батч каналов через flatMap (исключает undefined)
     const channelsPayload: SensorChannelBatch[] = Array.from(channelsMap.entries()).flatMap(
       ([chId, chEvents]) => {
         const firstChEvent = chEvents[0];
@@ -105,34 +103,92 @@ async function processTelemetryCycle() {
       channels: channelsPayload,
     };
 
-    // 4. Инференс и запись результатов
     try {
+      // 4. Проверяем, есть ли уже незакрытый инцидент по этому объекту
+      const activeIncident = await prisma.incident.findFirst({
+        where: {
+          systemObjectId: objectId,
+          status: { in: ['OPEN', 'IN_PROGRESS'] },
+        },
+      });
+
       const mlResponse = await predictIncidentRisk(payload);
 
-      // ЕСЛИ АВАРИИ НЕТ — ничего не создаем, идем к следующему объекту
+      // Если аномалий нет — идем к следующему объекту
       if (!mlResponse.isIncidentPredicted) {
         continue;
       }
 
-      // ЕСЛИ МОДЕЛЬ СПРОГНОЗИРОВАЛА АВАРИЮ:
-      // 1. Создаем бизнес-инцидент в постоянной базе PostgreSQL
+      // Определяем датчик, вызвавший тревогу
+      const triggeredChannel = mlResponse.channelId
+        ? channelsPayload.find((c) => c.channelId === mlResponse.channelId)
+        : null;
+
+      const sensorLabel = triggeredChannel
+        ? `датчик "${triggeredChannel.sensorName}" (#${triggeredChannel.channelId})`
+        : mlResponse.channelId
+        ? `датчик #${mlResponse.channelId}`
+        : null;
+
+      // =========================================================================
+      // ВАРИАНТ А: Объект уже зафиксирован (АГРЕГАЦИЯ / ДОПОЛНЕНИЕ ПРИЧИНЫ)
+      // =========================================================================
+      if (activeIncident) {
+        // Если датчик еще не упомянут в причине — дописываем его, не плодя дубли
+        if (sensorLabel && !activeIncident.reason.includes(sensorLabel)) {
+          const updatedReason = `${activeIncident.reason}; также сработал ${sensorLabel}`;
+
+          // 1. Обновляем причину в базе данных
+          await prisma.incident.update({
+            where: { id: activeIncident.id },
+            data: { reason: updatedReason },
+          });
+
+          // 2. Если инцидент еще в статусе OPEN — обновляем горячую карточку в Redis
+          if (activeIncident.status === 'OPEN') {
+            try {
+              await saveHotAlert({
+                id: activeIncident.id,
+                systemObjectId: objectId,
+                dispatcherName: systemObject.dispatcherName,
+                scenario: activeIncident.scenario,
+                recommendation: activeIncident.recommendation,
+                horizon: activeIncident.horizon,
+                reason: updatedReason,
+              });
+            } catch (cacheErr) {
+              console.error('Ошибка обновления алерта в Valkey/Redis:', cacheErr);
+            }
+          }
+
+          console.log(
+            `🔄 [АГРЕГАЦИЯ] Объект "${systemObject.dispatcherName}": дополнен ${sensorLabel}`
+          );
+        }
+
+        // Пропускаем создание нового инцидента
+        continue;
+      }
+
+      // =========================================================================
+      // ВАРИАНТ Б: Новый инцидент (ПЕРВИЧНОЕ СОЗДАНИЕ)
+      // =========================================================================
       const incident = await prisma.incident.create({
         data: {
           systemObjectId: objectId,
-          scenario: mlResponse.incidentType,           // Что сломается
-          recommendation: mlResponse.recommendation,   // Что делать диспетчеру
-          horizon: mlResponse.horizon,                 // Например: "24-48 часов"
-          reason: mlResponse.reason,                   // Причина (триггер)
-          status: 'OPEN',                              // Новый необработанный инцидент
+          scenario: mlResponse.incidentType,
+          recommendation: mlResponse.recommendation,
+          horizon: mlResponse.horizon,
+          reason: mlResponse.reason,
+          status: 'OPEN',
         },
       });
 
       console.log(
-        `🚨 [АВАРИЯ] Объект "${systemObject.dispatcherName}": ` +
-        `${mlResponse.incidentType} (Срок: ${mlResponse.horizon})`
+        `🚨 [НОВАЯ АВАРИЯ] Объект "${systemObject.dispatcherName}": ${mlResponse.incidentType} (Срок: ${mlResponse.horizon})`
       );
 
-      // 2. Мгновенно кладем в оперативный кэш Redis/Valkey для вывода на дашборд
+      // Кладем в оперативный кэш Redis/Valkey
       try {
         await saveHotAlert({
           id: incident.id,
@@ -146,7 +202,6 @@ async function processTelemetryCycle() {
       } catch (cacheErr) {
         console.error('Ошибка сохранения алерта в Valkey/Redis:', cacheErr);
       }
-
     } catch (err) {
       console.error(`Ошибка при инференсе объекта ${objectId}:`, err);
     }
@@ -157,15 +212,6 @@ export async function startTelemetryWorker() {
   if (isRunning) return;
   isRunning = true;
   console.log('🚀 Фоновый воркер телеметрии запущен');
-
-  /* if (lastProcessedEventId === 0n) {
-  const latestEvent = await prisma.eventLog.findFirst({
-    orderBy: { id: 'desc' },
-    select: { id: true }
-  });
-  lastProcessedEventId = latestEvent?.id ?? 0n;
-  }
-  */
 
   while (isRunning) {
     try {

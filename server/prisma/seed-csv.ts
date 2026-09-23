@@ -76,7 +76,7 @@ async function main() {
     });
     console.log(`✓ Залито каналов датчиков: ${channelsData.length}`);
 
-    // 3. Заливаем первые 1 000 строк журнала событий для начальной истории
+    // 3. Заливаем первые 10 000 строк журнала событий для захвата реальных тревог
     const eventsPath = path.join(DATA_DIR, 'журнал_событий_пример.csv');
     if (fs.existsSync(eventsPath)) {
         const eventsRaw = fs.readFileSync(eventsPath, 'utf-8');
@@ -84,26 +84,38 @@ async function main() {
             columns: true,
             skip_empty_lines: true,
             trim: true,
-            to: 1000,
+            to: 10000, // <-- Читаем первые 10 000 строк вместо 1 000
         });
 
         const eventsData = eventRecords.map((row) => {
-            const raw = row['значение_датчика'];
-            const num = parseFloat(raw);
+            const raw = (row['значение_датчика'] || '').trim();
+
+            // Нормализуем запятую: 25,40 -> 25.40
+            const normalized = raw.replace(',', '.');
+
+            // Строгая проверка на число: исключает даты вида '01.01.1970 03:00:00',
+            // которые стандартный parseFloat превращает в 1.01
+            const isStrictNumeric = /^-?\d+(\.\d+)?$/.test(normalized);
+            const numericValue = isStrictNumeric ? Number(normalized) : null;
+
             return {
                 id: BigInt(row['ид_события']),
                 channelId: parseInt(row['ид_канала_данных'], 10),
                 recordedAt: new Date(`${row['дата']}T${row['время']}Z`),
-                isAlarm: row['тревожное'].toLowerCase() === 'true',
+                isAlarm: String(row['тревожное']).toLowerCase() === 'true',
                 rawValue: raw,
-                numericValue: isNaN(num) ? null : num,
+                numericValue,
             };
         });
 
-        await prisma.eventLog.createMany({
-            data: eventsData,
-            skipDuplicates: true,
-        });
+        // Заливаем батчами по 2 000, чтобы не перегружать Postgres одним тяжелым запросом
+        const BATCH_SIZE = 2000;
+        for (let i = 0; i < eventsData.length; i += BATCH_SIZE) {
+            await prisma.eventLog.createMany({
+                data: eventsData.slice(i, i + BATCH_SIZE),
+                skipDuplicates: true,
+            });
+        }
         console.log(`✓ Залито начальных событий: ${eventsData.length}`);
     }
 }

@@ -59,7 +59,7 @@ export function DashboardPage() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  // 2. Передаем фильтры в хук (он перезапросит бэкенд при их изменении)
+  // 2. Запрос данных
   const {
     incidents,
     isLoading: isIncidentsLoading,
@@ -90,10 +90,7 @@ export function DashboardPage() {
     });
   };
 
-  const openIncidents = incidents.filter(
-    (incident) => incident.status === "OPEN",
-  ).length;
-
+  // 3. Метрики KPI
   const inProgressIncidents = incidents.filter(
     (incident) => incident.status === "IN_PROGRESS",
   ).length;
@@ -101,6 +98,18 @@ export function DashboardPage() {
   const confirmedIncidents = incidents.filter(
     (incident) => incident.status === "CONFIRMED",
   ).length;
+
+  const falsePositiveIncidents = incidents.filter(
+    (incident) => incident.status === "FALSE_POSITIVE",
+  ).length;
+
+  // 4. Исключаем статус OPEN из нижнего журнала — новые тревоги отображаются только в верхнем блоке
+  const journalIncidents = incidents.filter((incident) => {
+    if (filters.status) {
+      return incident.status === filters.status;
+    }
+    return incident.status !== "OPEN";
+  });
 
   return (
     <div className="p-4 md:p-6">
@@ -114,23 +123,9 @@ export function DashboardPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold">{alerts.length}</div>
+              <div className="text-3xl font-bold text-red-500">{alerts.length}</div>
               <p className="mt-1 text-xs text-muted-foreground">
-                требуют внимания диспетчера
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Открытые инциденты
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold">{openIncidents}</div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                ожидают обработки
+                требуют квитирования
               </p>
             </CardContent>
           </Card>
@@ -142,7 +137,7 @@ export function DashboardPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold">{inProgressIncidents}</div>
+              <div className="text-3xl font-bold text-blue-500">{inProgressIncidents}</div>
               <p className="mt-1 text-xs text-muted-foreground">
                 проверяются диспетчерами
               </p>
@@ -156,9 +151,25 @@ export function DashboardPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold">{confirmedIncidents}</div>
+              <div className="text-3xl font-bold text-amber-500">{confirmedIncidents}</div>
               <p className="mt-1 text-xs text-muted-foreground">
-                подтверждённых прогнозов
+                подтверждённых аварий
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Ложные срабатывания
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold text-neutral-400">
+                {falsePositiveIncidents}
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                параметры в норме
               </p>
             </CardContent>
           </Card>
@@ -210,7 +221,7 @@ export function DashboardPage() {
           </Card>
         </section>
 
-        {/* Активные прогнозы */}
+        {/* Активные прогнозы (Горячий буфер Redis) */}
         <Card className="min-w-0 border-destructive/30">
           <CardHeader>
             <div className="flex flex-wrap items-start justify-between gap-4">
@@ -263,12 +274,12 @@ export function DashboardPage() {
                           </div>
                         </TableCell>
                         <TableCell className="align-top whitespace-normal">
-                          <Badge
-                            variant="destructive"
-                            className="max-w-full whitespace-normal break-words text-left leading-snug"
-                          >
-                            {alert.scenario}
-                          </Badge>
+                          <div className="flex items-start gap-2">
+                            <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-red-500 animate-pulse" />
+                            <span className="font-medium text-sm leading-snug break-words">
+                              {alert.scenario}
+                            </span>
+                          </div>
                         </TableCell>
                         <TableCell className="align-top font-medium">
                           <span className="whitespace-normal">
@@ -304,13 +315,13 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Журнал инцидентов с фильтрацией */}
+        {/* Журнал инцидентов (Постоянное хранилище PostgreSQL) */}
         <Card className="min-w-0">
           <CardHeader className="space-y-4">
             <div>
               <CardTitle className="text-lg">Журнал инцидентов</CardTitle>
               <p className="mt-1 text-sm text-muted-foreground">
-                История прогнозов и результаты их обработки
+                История принятых в работу инцидентов и результаты их обработки
               </p>
             </div>
 
@@ -338,8 +349,7 @@ export function DashboardPage() {
                   onChange={(e) => handleFilterChange("status", e.target.value)}
                   className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
-                  <option value="">Все статусы</option>
-                  <option value="OPEN">Открыт</option>
+                  <option value="">Все обработанные</option>
                   <option value="IN_PROGRESS">В работе</option>
                   <option value="CONFIRMED">Подтверждён</option>
                   <option value="FALSE_POSITIVE">Ложное срабатывание</option>
@@ -397,7 +407,7 @@ export function DashboardPage() {
                   Загрузка журнала...
                 </p>
               </div>
-            ) : incidents.length === 0 ? (
+            ) : journalIncidents.length === 0 ? (
               <div className="rounded-lg border p-8 text-center">
                 <p className="text-sm text-muted-foreground">
                   По заданным фильтрам записей не найдено.
@@ -416,14 +426,14 @@ export function DashboardPage() {
                       <TableHead className="w-[11%]">Статус</TableHead>
                       <TableHead className="w-[19%]">Инцидент</TableHead>
                       <TableHead className="w-[10%]">Горизонт</TableHead>
-                      <TableHead className="w-[23%]">Причина</TableHead>
+                      <TableHead className="w-[21%]">Причина</TableHead>
                       <TableHead className="w-[13%]">Создан</TableHead>
-                      <TableHead className="w-[16%] text-right">Действие</TableHead>
+                      <TableHead className="w-[18%] text-right">Действие</TableHead>
                     </TableRow>
                   </TableHeader>
 
                   <TableBody>
-                    {incidents.map((incident) => (
+                    {journalIncidents.map((incident) => (
                       <TableRow key={incident.id}>
                         <TableCell className="align-top font-mono text-sm">
                           #{incident.systemObjectId}
@@ -432,8 +442,10 @@ export function DashboardPage() {
                         <TableCell className="align-top">
                           <Badge
                             variant={
-                              incident.status === "OPEN" || incident.status === "CONFIRMED"
+                              incident.status === "CONFIRMED"
                                 ? "destructive"
+                                : incident.status === "IN_PROGRESS"
+                                ? "default"
                                 : "secondary"
                             }
                             className="whitespace-normal"
@@ -462,27 +474,44 @@ export function DashboardPage() {
 
                         {/* УСЛОВНЫЙ РЕНДЕРИНГ ДЕЙСТВИЙ */}
                         <TableCell className="align-top text-right">
-                          <div className="flex justify-end items-center">
+                          <div className="flex justify-end items-center gap-1.5">
                             {incident.status === "IN_PROGRESS" ? (
-                              /* ОДНА КНОПКА «Завершить заявку», открывающая модалку */
-                              <ResolveIncidentDialog
-                                incidentId={incident.id}
+                              <>
+                                {/* 1. Промежуточная фиксация / черновик наряда */}
+                                <RecordActionDialog
+                                  incident={incident}
+                                  triggerText="Действие"
+                                  triggerVariant="outline"
+                                  onSubmit={async (payload) => {
+                                    await recordAction({
+                                      incidentId: incident.id,
+                                      payload,
+                                    });
+                                  }}
+                                />
+
+                                {/* 2. Финальное закрытие заявки с вердиктом */}
+                                <ResolveIncidentDialog
+                                  incidentId={incident.id}
+                                  onSubmit={async (payload) => {
+                                    await recordAction({
+                                      incidentId: incident.id,
+                                      payload,
+                                    });
+                                  }}
+                                />
+                              </>
+                            ) : incident.status === "OPEN" ? (
+                              <RecordActionDialog
+                                incident={incident}
+                                triggerText="Взять в работу"
+                                triggerVariant="default"
                                 onSubmit={async (payload) => {
                                   await recordAction({
                                     incidentId: incident.id,
                                     payload,
                                   });
                                 }}
-                              />
-                            ) : incident.status === "OPEN" ? (
-                              <RecordActionDialog
-                                incidentId={incident.id}
-                                onSubmit={(payload) =>
-                                  recordAction({
-                                    incidentId: incident.id,
-                                    payload,
-                                  })
-                                }
                               />
                             ) : (
                               <span className="text-xs text-muted-foreground px-2 py-1">

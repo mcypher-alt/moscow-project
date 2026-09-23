@@ -8,6 +8,7 @@ import { startTelemetryWorker } from './workers/telemetry.worker.js';
 import authRouter from '../src/routes/authorization.js';
 import incidentsRouter from '../src/routes/incidents.js';
 import alertsRouter from '../src/routes/alerts.js';
+import objectsRouter from '../src/routes/objects.js';
 
 (BigInt.prototype as any).toJSON = function () {
     return this.toString();
@@ -28,6 +29,7 @@ app.use(helmet());
 app.use('/api/auth', authRouter);
 app.use('/api/incidents', incidentsRouter);
 app.use('/api/alerts', alertsRouter);
+app.use('api/objects', objectsRouter);
 
 app.listen(PORT, () => {
     console.log(`Бэкенд запущен на http://localhost:${PORT}`);

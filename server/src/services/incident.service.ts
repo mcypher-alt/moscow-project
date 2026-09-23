@@ -8,12 +8,15 @@ export interface IncidentFilterQuery {
     search?: string;
     dateFrom?: string; // ISO-строка, например: '2026-09-20T00:00:00.000Z'
     dateTo?: string;   // ISO-строка, например: '2026-09-21T23:59:59.999Z'
+    take?: number;     // Пагинация: сколько записей вернуть
+    skip?: number;     // Пагинация: сколько пропустить
 }
 
 interface RecordActionParams {
     incidentId: string;
     userId: string;
     decision: string;
+    status?: IncidentStatus; // Позволяем передавать финальный статус (CONFIRMED / FALSE_POSITIVE)
     comment?: string;
 }
 
@@ -57,10 +60,13 @@ export async function getAllIncidents(filters: IncidentFilterQuery = {}) {
 
     return prisma.incident.findMany({
         where,
+        take: Number(filters.take) || 50, // <-- ВОТ ЗДЕСЬ: дефолтный лимит 50 записей
+        skip: Number(filters.skip) || 0,
         include: {
             systemObject: true,
             actions: {
                 orderBy: { createdAt: 'desc' },
+                take: 10, // Чтобы не раздувать ответ историей действий
             },
         },
         orderBy: {
@@ -78,6 +84,7 @@ export async function recordDispatcherAction({
     incidentId,
     userId,
     decision,
+    status = IncidentStatus.IN_PROGRESS, // Если статус не передан, ставим IN_PROGRESS
     comment,
 }: RecordActionParams) {
     // 1. Атомарно фиксируем действие и меняем статус инцидента
@@ -93,7 +100,7 @@ export async function recordDispatcherAction({
         prisma.incident.update({
             where: { id: incidentId },
             data: {
-                status: 'IN_PROGRESS',
+                status, // <-- ВОТ ЗДЕСЬ: теперь можно передавать CONFIRMED или FALSE_POSITIVE
             },
         }),
     ]);
@@ -102,8 +109,6 @@ export async function recordDispatcherAction({
     try {
         await resolveHotAlert(incidentId);
     } catch (cacheError) {
-        // Логируем ошибку, но не прерываем выполнение:
-        // Действие диспетчера уже надежно зафиксировано в PostgreSQL!
         console.error(`[Cache Error] Failed to resolve hot alert ${incidentId}:`, cacheError);
     }
 
@@ -113,24 +118,25 @@ export async function recordDispatcherAction({
 export async function acknowledgeIncident(incidentId: string) {
     let updatedIncident = null;
 
-    // 1. Проверяем наличие записи в Postgres перед обновлением
     const existing = await prisma.incident.findUnique({
         where: { id: incidentId },
     });
 
-    if (existing) {
-        updatedIncident = await prisma.incident.update({
-            where: { id: incidentId },
-            data: {
-                status: 'IN_PROGRESS', // Переводим в статус "В работе"
-            },
-        });
-    } else {
-        console.warn(`[ACK] Инцидент ${incidentId} отсутствовал в PostgreSQL, снят только из Redis`);
+    if (!existing) {
+        // Возвращаем явный null или выбрасываем 404, а не притворяемся успехом
+        console.warn(`[ACK] Инцидент ${incidentId} не найден в базе`);
+        await resolveHotAlert(incidentId);
+        return null;
     }
 
-    // 2. Снимаем горящий алерт из Redis и рассылаем SSE
+    updatedIncident = await prisma.incident.update({
+        where: { id: incidentId },
+        data: {
+            status: IncidentStatus.IN_PROGRESS,
+        },
+    });
+
     await resolveHotAlert(incidentId);
 
-    return updatedIncident ?? { id: incidentId, status: 'IN_PROGRESS' };
+    return updatedIncident;
 }
