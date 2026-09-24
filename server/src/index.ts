@@ -31,7 +31,7 @@ app.use(helmet({
 app.use('/api/auth', authRouter);
 app.use('/api/incidents', incidentsRouter);
 app.use('/api/alerts', alertsRouter);
-app.use('api/objects', objectsRouter);
+app.use('/api/objects', objectsRouter);
 
 app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`Бэкенд запущен на http://localhost:${PORT}`);

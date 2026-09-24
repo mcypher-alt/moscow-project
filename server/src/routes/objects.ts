@@ -12,6 +12,63 @@ const OBJECT_KIND_LABELS: Record<string, string> = {
     collector: 'Инженерный коммуникационный коллектор',
 };
 
+router.get('/', async (req, res) => {
+    try {
+        const systemObjects = await prisma.systemObject.findMany({
+            orderBy: { id: 'asc' },
+            include: {
+                // Подтягиваем только последний открытый инцидент для статуса риска
+                incidents: {
+                    where: {
+                        status: { in: ['OPEN', 'IN_PROGRESS'] },
+                    },
+                    orderBy: { createdAt: 'desc' },
+                    take: 1,
+                },
+                // Считаем количество датчиков и подузлов без выгрузки всех записей
+                _count: {
+                    select: {
+                        channels: true,
+                        children: true,
+                    },
+                },
+            },
+        });
+
+        const response = systemObjects.map((obj) => {
+            const activeIncident = obj.incidents[0] || null;
+
+            return {
+                id: obj.id,
+                name: obj.dispatcherName,
+                dispatcherName: obj.dispatcherName,
+                level: obj.level,
+                objectKind: obj.objectKind,
+                kindLabel: OBJECT_KIND_LABELS[obj.objectKind] || obj.objectKind,
+                status: activeIncident ? 'CRITICAL' : 'NORMAL',
+                activeIncident: activeIncident ? activeIncident.scenario : null,
+                horizon: activeIncident ? activeIncident.horizon : null,
+                incident: activeIncident
+                    ? {
+                        id: activeIncident.id,
+                        scenario: activeIncident.scenario,
+                        horizon: activeIncident.horizon,
+                        reason: activeIncident.reason,
+                        recommendation: activeIncident.recommendation,
+                    }
+                    : null,
+                sensorsCount: obj._count.channels,
+                childrenCount: obj._count.children,
+            };
+        });
+
+        res.json(response);
+    } catch (error) {
+        console.error('Ошибка получения списка объектов:', error);
+        res.status(500).json({ error: 'Внутренняя ошибка сервера' });
+    }
+});
+
 router.get('/:id', async (req, res) => {
     try {
         const objectId = Number(req.params.id);
