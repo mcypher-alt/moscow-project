@@ -259,6 +259,25 @@ export const ObjectRiskMap = memo(function ObjectRiskMap() {
                                         >
                                             Открыть паспорт объекта →
                                         </button>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+
+                                                // Если мы уже на дашборде — шлем событие
+                                                window.dispatchEvent(
+                                                new CustomEvent("focus-incident", { detail: object.name })
+                                                );
+
+                                                // Если мы на другой странице — переходим на дашборд
+                                                if (!window.location.pathname.includes("/dashboard")) {
+                                                navigate(`/dashboard?search=${encodeURIComponent(object.name)}`);
+                                                }
+                                            }}
+                                            className="w-full mt-1 rounded bg-neutral-900 py-1 text-center text-xs font-medium text-white hover:bg-neutral-800 transition"
+                                            >
+                                            Перейти к инциденту →
+                                        </button>
                                     </div>
                                 </Popup>
                             </CircleMarker>

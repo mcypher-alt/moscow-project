@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { ObjectRiskMap } from "../components/ObjectRiskMap";
 import {
   Card,
@@ -38,28 +38,114 @@ function formatDate(value: string) {
   });
 }
 
+function getSearchFromUrl(): string {
+  if (typeof window === "undefined") return "";
+  const directParams = new URLSearchParams(window.location.search);
+  const fromSearch = directParams.get("search");
+  if (fromSearch) return fromSearch;
+
+  if (window.location.hash.includes("?")) {
+    const hashQuery = window.location.hash.split("?")[1];
+    return new URLSearchParams(hashQuery).get("search") || "";
+  }
+  return "";
+}
+
 export function DashboardPage() {
-  // 1. Состояние фильтров журнала
+  const incidentsSectionRef = useRef<HTMLDivElement>(null);
+  const initialQuery = getSearchFromUrl();
+
+  // 1. Фильтры
+  const [searchInput, setSearchInput] = useState(initialQuery);
   const [filters, setFilters] = useState<IncidentFilters>({
-    search: "",
+    search: initialQuery.trim() || undefined,
     status: undefined,
     dateFrom: "",
     dateTo: "",
   });
 
-  const [searchInput, setSearchInput] = useState("");
+  const scrollToIncidents = () => {
+    incidentsSectionRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  };
 
+  // Всеядный слушатель: перехватывает клики из карты (CustomEvent) И любые изменения URL (navigate/pushState/popstate)
   useEffect(() => {
-    const timer = setTimeout(() => {
+    const applySearch = (query: string) => {
+      if (!query) return;
+      setSearchInput(query);
       setFilters((prev) => ({
         ...prev,
-        search: searchInput.trim() || undefined,
+        search: query.trim() || undefined,
       }));
+      setTimeout(scrollToIncidents, 80);
+    };
+
+    // 1. Слушаем кастомное событие из карты
+    const handleFocusIncident = (event: Event) => {
+      const customEvent = event as CustomEvent<string>;
+      if (customEvent.detail) {
+        applySearch(customEvent.detail);
+      }
+    };
+
+    // 2. Слушаем смену параметров в URL
+    const handleLocationChange = () => {
+      const query = getSearchFromUrl();
+      if (query) {
+        applySearch(query);
+      }
+    };
+
+    // Перехватываем вызовы pushState и replaceState от React Router
+    const originalPushState = window.history.pushState;
+    const originalReplaceState = window.history.replaceState;
+
+    window.history.pushState = function (...args) {
+      const result = originalPushState.apply(this, args);
+      handleLocationChange();
+      return result;
+    };
+
+    window.history.replaceState = function (...args) {
+      const result = originalReplaceState.apply(this, args);
+      handleLocationChange();
+      return result;
+    };
+
+    window.addEventListener("focus-incident", handleFocusIncident);
+    window.addEventListener("popstate", handleLocationChange);
+    window.addEventListener("hashchange", handleLocationChange);
+
+    // Первичный скролл, если зашли по прямой ссылке с ?search=
+    if (initialQuery) {
+      setTimeout(scrollToIncidents, 120);
+    }
+
+    return () => {
+      window.history.pushState = originalPushState;
+      window.history.replaceState = originalReplaceState;
+      window.removeEventListener("focus-incident", handleFocusIncident);
+      window.removeEventListener("popstate", handleLocationChange);
+      window.removeEventListener("hashchange", handleLocationChange);
+    };
+  }, [initialQuery]);
+
+  // Дебаунс ручного ввода текста диспетчером
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFilters((prev) => {
+        const clean = searchInput.trim() || undefined;
+        if (prev.search === clean) return prev;
+        return { ...prev, search: clean };
+      });
     }, 400);
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  // 2. Запрос данных
+  // 2. Сетевые запросы
   const {
     incidents,
     isLoading: isIncidentsLoading,
@@ -88,28 +174,38 @@ export function DashboardPage() {
       dateFrom: "",
       dateTo: "",
     });
+
+    if (window.location.search || window.location.hash.includes("search=")) {
+      window.history.replaceState(null, "", window.location.pathname);
+    }
   };
 
-  // 3. Метрики KPI
-  const inProgressIncidents = incidents.filter(
-    (incident) => incident.status === "IN_PROGRESS",
-  ).length;
+  // 3. Оптимизация вычислений в один проход
+  const { inProgressCount, confirmedCount, falsePositiveCount, journalIncidents } = useMemo(() => {
+    let inProgress = 0;
+    let confirmed = 0;
+    let falsePositive = 0;
+    const journal: typeof incidents = [];
 
-  const confirmedIncidents = incidents.filter(
-    (incident) => incident.status === "CONFIRMED",
-  ).length;
+    for (const item of incidents) {
+      if (item.status === "IN_PROGRESS") inProgress++;
+      else if (item.status === "CONFIRMED") confirmed++;
+      else if (item.status === "FALSE_POSITIVE") falsePositive++;
 
-  const falsePositiveIncidents = incidents.filter(
-    (incident) => incident.status === "FALSE_POSITIVE",
-  ).length;
-
-  // 4. Исключаем статус OPEN из нижнего журнала — новые тревоги отображаются только в верхнем блоке
-  const journalIncidents = incidents.filter((incident) => {
-    if (filters.status) {
-      return incident.status === filters.status;
+      if (filters.status) {
+        if (item.status === filters.status) journal.push(item);
+      } else if (item.status !== "OPEN") {
+        journal.push(item);
+      }
     }
-    return incident.status !== "OPEN";
-  });
+
+    return {
+      inProgressCount: inProgress,
+      confirmedCount: confirmed,
+      falsePositiveCount: falsePositive,
+      journalIncidents: journal,
+    };
+  }, [incidents, filters.status]);
 
   return (
     <div className="p-4 md:p-6">
@@ -137,7 +233,7 @@ export function DashboardPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-blue-500">{inProgressIncidents}</div>
+              <div className="text-3xl font-bold text-blue-500">{inProgressCount}</div>
               <p className="mt-1 text-xs text-muted-foreground">
                 проверяются диспетчерами
               </p>
@@ -151,7 +247,7 @@ export function DashboardPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-amber-500">{confirmedIncidents}</div>
+              <div className="text-3xl font-bold text-amber-500">{confirmedCount}</div>
               <p className="mt-1 text-xs text-muted-foreground">
                 подтверждённых аварий
               </p>
@@ -166,7 +262,7 @@ export function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-neutral-400">
-                {falsePositiveIncidents}
+                {falsePositiveCount}
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
                 параметры в норме
@@ -199,7 +295,7 @@ export function DashboardPage() {
                   <span className="h-3 w-3 shrink-0 rounded-full bg-red-500" />
                   <span>Критический риск</span>
                 </div>
-                <strong>1</strong>
+                <strong>{alerts.length}</strong>
               </div>
 
               <div className="flex items-center justify-between rounded-lg border p-4">
@@ -207,7 +303,7 @@ export function DashboardPage() {
                   <span className="h-3 w-3 shrink-0 rounded-full bg-amber-500" />
                   <span>Повышенный риск</span>
                 </div>
-                <strong>1</strong>
+                <strong>{inProgressCount}</strong>
               </div>
 
               <div className="flex items-center justify-between rounded-lg border p-4">
@@ -215,13 +311,13 @@ export function DashboardPage() {
                   <span className="h-3 w-3 shrink-0 rounded-full bg-green-500" />
                   <span>Штатное состояние</span>
                 </div>
-                <strong>2</strong>
+                <strong>{falsePositiveCount}</strong>
               </div>
             </CardContent>
           </Card>
         </section>
 
-        {/* Активные прогнозы (Горячий буфер Redis) */}
+        {/* Активные прогнозы */}
         <Card className="min-w-0 border-destructive/30">
           <CardHeader>
             <div className="flex flex-wrap items-start justify-between gap-4">
@@ -282,7 +378,6 @@ export function DashboardPage() {
                               </span>
                             </div>
 
-                            {/* Процент вероятности по ТЗ */}
                             {alert.probability != null && (
                               <div className="flex items-center gap-1.5 pl-4">
                                 <span className="text-[11px] text-muted-foreground">Вероятность:</span>
@@ -327,173 +422,195 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Журнал инцидентов (Постоянное хранилище PostgreSQL) */}
-        <Card className="min-w-0">
-          <CardHeader className="space-y-4">
-            <div>
-              <CardTitle className="text-lg">Журнал инцидентов</CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">
-                История принятых в работу инцидентов и результаты их обработки
-              </p>
-            </div>
-
-            {/* ПАНЕЛЬ ФИЛЬТРОВ */}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5 rounded-lg border bg-card/50 p-3 text-sm">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Поиск
-                </label>
-                <input
-                  type="text"
-                  placeholder="Сценарий, объект, причина..."
-                  value={searchInput}
-                  onChange={(e) => setSearchInput(e.target.value)}
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Статус
-                </label>
-                <select
-                  value={filters.status || ""}
-                  onChange={(e) => handleFilterChange("status", e.target.value)}
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                >
-                  <option value="">Все обработанные</option>
-                  <option value="IN_PROGRESS">В работе</option>
-                  <option value="CONFIRMED">Подтверждён</option>
-                  <option value="FALSE_POSITIVE">Ложное срабатывание</option>
-                </select>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Период от
-                </label>
-                <input
-                  type="date"
-                  value={filters.dateFrom || ""}
-                  onChange={(e) => handleFilterChange("dateFrom", e.target.value)}
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-medium text-muted-foreground">
-                  Период до
-                </label>
-                <input
-                  type="date"
-                  value={filters.dateTo || ""}
-                  onChange={(e) => handleFilterChange("dateTo", e.target.value)}
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                />
-              </div>
-
-              <div className="flex items-end">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleResetFilters}
-                  className="h-9 w-full"
-                >
-                  Сбросить
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-
-          <CardContent className="relative min-h-[300px]">
-            {isIncidentsFetching && !isIncidentsLoading && (
-              <div className="absolute top-2 right-6 z-10 flex items-center gap-2 rounded-full bg-background/80 px-2.5 py-1 text-xs text-muted-foreground backdrop-blur border shadow-sm">
-                <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
-                Обновление...
-              </div>
-            )}
-
-            {isIncidentsLoading ? (
-              <div className="flex h-48 items-center justify-center">
-                <p className="text-sm text-muted-foreground animate-pulse">
-                  Загрузка журнала...
+        {/* Журнал инцидентов */}
+        <div ref={incidentsSectionRef} className="scroll-mt-6">
+          <Card className="min-w-0">
+            <CardHeader className="space-y-4">
+              <div>
+                <CardTitle className="text-lg">Журнал инцидентов</CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  История принятых в работу инцидентов и результаты их обработки
                 </p>
               </div>
-            ) : journalIncidents.length === 0 ? (
-              <div className="rounded-lg border p-8 text-center">
-                <p className="text-sm text-muted-foreground">
-                  По заданным фильтрам записей не найдено.
-                </p>
+
+              {/* ПАНЕЛЬ ФИЛЬТРОВ */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5 rounded-lg border bg-card/50 p-3 text-sm">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Поиск
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Сценарий, объект, причина..."
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value)}
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Статус
+                  </label>
+                  <select
+                    value={filters.status || ""}
+                    onChange={(e) => handleFilterChange("status", e.target.value)}
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    <option value="">Все обработанные</option>
+                    <option value="IN_PROGRESS">В работе</option>
+                    <option value="CONFIRMED">Подтверждён</option>
+                    <option value="FALSE_POSITIVE">Ложное срабатывание</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Период от
+                  </label>
+                  <input
+                    type="date"
+                    value={filters.dateFrom || ""}
+                    onChange={(e) => handleFilterChange("dateFrom", e.target.value)}
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Период до
+                  </label>
+                  <input
+                    type="date"
+                    value={filters.dateTo || ""}
+                    onChange={(e) => handleFilterChange("dateTo", e.target.value)}
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                </div>
+
+                <div className="flex items-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleResetFilters}
+                    className="h-9 w-full"
+                  >
+                    Сбросить
+                  </Button>
+                </div>
               </div>
-            ) : (
-              <div
-                className={`overflow-x-auto rounded-lg border transition-opacity duration-200 ${
-                  isIncidentsFetching ? "opacity-50 pointer-events-none" : "opacity-100"
-                }`}
-              >
-                <Table className="min-w-[1200px] table-fixed">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-[8%]">Объект</TableHead>
-                      <TableHead className="w-[11%]">Статус</TableHead>
-                      <TableHead className="w-[19%]">Инцидент</TableHead>
-                      <TableHead className="w-[10%]">Горизонт</TableHead>
-                      <TableHead className="w-[21%]">Причина</TableHead>
-                      <TableHead className="w-[13%]">Создан</TableHead>
-                      <TableHead className="w-[18%] text-right">Действие</TableHead>
-                    </TableRow>
-                  </TableHeader>
+            </CardHeader>
 
-                  <TableBody>
-                    {journalIncidents.map((incident) => (
-                      <TableRow key={incident.id}>
-                        <TableCell className="align-top font-mono text-sm">
-                          #{incident.systemObjectId}
-                        </TableCell>
+            <CardContent className="relative min-h-[300px]">
+              {isIncidentsFetching && !isIncidentsLoading && (
+                <div className="absolute top-2 right-6 z-10 flex items-center gap-2 rounded-full bg-background/80 px-2.5 py-1 text-xs text-muted-foreground backdrop-blur border shadow-sm">
+                  <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
+                  Обновление...
+                </div>
+              )}
 
-                        <TableCell className="align-top">
-                          <Badge
-                            variant={
-                              incident.status === "CONFIRMED"
-                                ? "destructive"
-                                : incident.status === "IN_PROGRESS"
-                                ? "default"
-                                : "secondary"
-                            }
-                            className="whitespace-normal"
-                          >
-                            {statusLabels[incident.status] ?? incident.status}
-                          </Badge>
-                        </TableCell>
+              {isIncidentsLoading ? (
+                <div className="flex h-48 items-center justify-center">
+                  <p className="text-sm text-muted-foreground animate-pulse">
+                    Загрузка журнала...
+                  </p>
+                </div>
+              ) : journalIncidents.length === 0 ? (
+                <div className="rounded-lg border p-8 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    По заданным фильтрам записей не найдено.
+                  </p>
+                </div>
+              ) : (
+                <div
+                  className={`overflow-x-auto rounded-lg border transition-opacity duration-200 ${
+                    isIncidentsFetching ? "opacity-50 pointer-events-none" : "opacity-100"
+                  }`}
+                >
+                  <Table className="min-w-[1200px] table-fixed">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[8%]">Объект</TableHead>
+                        <TableHead className="w-[11%]">Статус</TableHead>
+                        <TableHead className="w-[19%]">Инцидент</TableHead>
+                        <TableHead className="w-[10%]">Горизонт</TableHead>
+                        <TableHead className="w-[21%]">Причина</TableHead>
+                        <TableHead className="w-[13%]">Создан</TableHead>
+                        <TableHead className="w-[18%] text-right">Действие</TableHead>
+                      </TableRow>
+                    </TableHeader>
 
-                        <TableCell className="align-top whitespace-normal break-words font-medium">
-                          {incident.scenario}
-                        </TableCell>
+                    <TableBody>
+                      {journalIncidents.map((incident) => (
+                        <TableRow key={incident.id}>
+                          <TableCell className="align-top font-mono text-sm">
+                            #{incident.systemObjectId}
+                          </TableCell>
 
-                        <TableCell className="align-top whitespace-normal">
-                          {incident.horizon}
-                        </TableCell>
+                          <TableCell className="align-top">
+                            <Badge
+                              variant={
+                                incident.status === "CONFIRMED"
+                                  ? "destructive"
+                                  : incident.status === "IN_PROGRESS"
+                                  ? "default"
+                                  : "secondary"
+                              }
+                              className="whitespace-normal"
+                            >
+                              {statusLabels[incident.status] ?? incident.status}
+                            </Badge>
+                          </TableCell>
 
-                        <TableCell className="align-top whitespace-normal break-words text-sm text-muted-foreground">
-                          <span className="leading-relaxed">
-                            {incident.reason}
-                          </span>
-                        </TableCell>
+                          <TableCell className="align-top whitespace-normal break-words font-medium">
+                            {incident.scenario}
+                          </TableCell>
 
-                        <TableCell className="align-top whitespace-normal text-xs text-muted-foreground">
-                          {formatDate(incident.createdAt)}
-                        </TableCell>
+                          <TableCell className="align-top whitespace-normal">
+                            {incident.horizon}
+                          </TableCell>
 
-                        {/* УСЛОВНЫЙ РЕНДЕРИНГ ДЕЙСТВИЙ */}
-                        <TableCell className="align-top text-right">
-                          <div className="flex justify-end items-center gap-1.5">
-                            {incident.status === "IN_PROGRESS" ? (
-                              <>
-                                {/* 1. Промежуточная фиксация / черновик наряда */}
+                          <TableCell className="align-top whitespace-normal break-words text-sm text-muted-foreground">
+                            <span className="leading-relaxed">
+                              {incident.reason}
+                            </span>
+                          </TableCell>
+
+                          <TableCell className="align-top whitespace-normal text-xs text-muted-foreground">
+                            {formatDate(incident.createdAt)}
+                          </TableCell>
+
+                          <TableCell className="align-top text-right">
+                            <div className="flex justify-end items-center gap-1.5">
+                              {incident.status === "IN_PROGRESS" ? (
+                                <>
+                                  <RecordActionDialog
+                                    incident={incident}
+                                    triggerText="Действие"
+                                    triggerVariant="outline"
+                                    onSubmit={async (payload) => {
+                                      await recordAction({
+                                        incidentId: incident.id,
+                                        payload,
+                                      });
+                                    }}
+                                  />
+
+                                  <ResolveIncidentDialog
+                                    incidentId={incident.id}
+                                    onSubmit={async (payload) => {
+                                      await recordAction({
+                                        incidentId: incident.id,
+                                        payload,
+                                      });
+                                    }}
+                                  />
+                                </>
+                              ) : incident.status === "OPEN" ? (
                                 <RecordActionDialog
                                   incident={incident}
-                                  triggerText="Действие"
-                                  triggerVariant="outline"
+                                  triggerText="Взять в работу"
+                                  triggerVariant="default"
                                   onSubmit={async (payload) => {
                                     await recordAction({
                                       incidentId: incident.id,
@@ -501,45 +618,22 @@ export function DashboardPage() {
                                     });
                                   }}
                                 />
-
-                                {/* 2. Финальное закрытие заявки с вердиктом */}
-                                <ResolveIncidentDialog
-                                  incidentId={incident.id}
-                                  onSubmit={async (payload) => {
-                                    await recordAction({
-                                      incidentId: incident.id,
-                                      payload,
-                                    });
-                                  }}
-                                />
-                              </>
-                            ) : incident.status === "OPEN" ? (
-                              <RecordActionDialog
-                                incident={incident}
-                                triggerText="Взять в работу"
-                                triggerVariant="default"
-                                onSubmit={async (payload) => {
-                                  await recordAction({
-                                    incidentId: incident.id,
-                                    payload,
-                                  });
-                                }}
-                              />
-                            ) : (
-                              <span className="text-xs text-muted-foreground px-2 py-1">
-                                Закрыт
-                              </span>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                              ) : (
+                                <span className="text-xs text-muted-foreground px-2 py-1">
+                                  Закрыт
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </main>
     </div>
   );

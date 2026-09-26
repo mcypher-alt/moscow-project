@@ -1,15 +1,30 @@
-import { useParams, useNavigate } from "react-router";
-import { ArrowLeft, CheckCircle2, Network, Cpu, AlertTriangle } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Network, Cpu, AlertTriangle, ArrowRight } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useObjectDetails } from "../hooks/useDispatcher";
 
-export function ObjectDetailsPage() {
-  const navigate = useNavigate();
-  const { id } = useParams<{ id: string }>();
+// Безопасное извлечение ID объекта из адресной строки (/objects/123 или #/objects/123)
+function getObjectIdFromUrl(): string | undefined {
+  if (typeof window === "undefined") return undefined;
 
+  const path = window.location.hash.includes("/objects/")
+    ? window.location.hash
+    : window.location.pathname;
+
+  const parts = path.split("/").filter(Boolean);
+  const objectIndex = parts.findIndex((p) => p.includes("objects"));
+  
+  if (objectIndex !== -1 && parts[objectIndex + 1]) {
+    return parts[objectIndex + 1].split("?")[0];
+  }
+
+  return parts[parts.length - 1]?.split("?")[0];
+}
+
+export function ObjectDetailsPage() {
+  const id = getObjectIdFromUrl();
   const { data: object, isLoading, error } = useObjectDetails(id);
 
   // 1. Состояние загрузки
@@ -27,13 +42,13 @@ export function ObjectDetailsPage() {
   if (error || !object) {
     return (
       <div className="space-y-4 p-6 max-w-[1400px] mx-auto">
-        <Button variant="ghost" onClick={() => navigate(-1)}>
+        <Button variant="ghost" onClick={() => window.history.back()}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Назад
         </Button>
         <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-8 text-center">
           <p className="text-sm font-medium text-destructive">
-            Объект #{id} не найден в базе данных или произошла ошибка загрузки.
+            Объект #{id ?? "—"} не найден в базе данных или произошла ошибка загрузки.
           </p>
         </div>
       </div>
@@ -49,7 +64,7 @@ export function ObjectDetailsPage() {
         <Button
           variant="ghost"
           className="mb-4"
-          onClick={() => navigate(-1)}
+          onClick={() => window.history.back()}
         >
           <ArrowLeft className="mr-2 h-4 w-4" />
           Назад
@@ -77,7 +92,7 @@ export function ObjectDetailsPage() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
-        {/* Карточка 1: Параметры объекта и иерархия */}
+        {/* Карточка 1: Параметры объекта и топология */}
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-2">
@@ -98,7 +113,9 @@ export function ObjectDetailsPage() {
               {object.parent ? (
                 <button
                   type="button"
-                  onClick={() => navigate(`/objects/${object.parent?.id}`)}
+                  onClick={() => {
+                    window.location.href = `/objects/${object.parent?.id}`;
+                  }}
                   className="mt-1 text-sm font-medium text-primary hover:underline flex items-center gap-1.5"
                 >
                   <span>{object.parent.name}</span>
@@ -124,9 +141,9 @@ export function ObjectDetailsPage() {
           </CardContent>
         </Card>
 
-        {/* Карточка 2: Активный прогноз или штатный режим */}
+        {/* Карточка 2: Активный прогноз инцидента */}
         {object.incident ? (
-          <Card className="border-destructive/30">
+          <Card className="border-destructive/30 bg-destructive/[0.02] shadow-sm flex flex-col justify-between">
             <CardHeader className="pb-3">
               <div className="flex items-center gap-2">
                 <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
@@ -159,6 +176,22 @@ export function ObjectDetailsPage() {
                 <p className="mt-1 leading-relaxed">
                   {object.incident.recommendation || "Согласно технологической карте объекта"}
                 </p>
+              </div>
+
+              <div className="pt-3 border-t border-destructive/20">
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="group w-full justify-between shadow-sm transition-all duration-200 hover:shadow-md active:scale-[0.99]"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Открываем дашборд с поиском по имени объекта
+                    window.location.href = `/dashboard?search=${encodeURIComponent(object.name)}`;
+                  }}
+                >
+                  <span className="font-medium">Перейти к инциденту в журнале</span>
+                  <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
+                </Button>
               </div>
             </CardContent>
           </Card>
