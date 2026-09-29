@@ -10,3 +10,18 @@ venv/
 lib/generated/prisma
 prisma/*.db
 prisma/*.db-journal
+output/verification/*.dump
+output/verification/*.png
+output/verification/*.json
+output/verification/*.csv
+.artifact-build/
+.codex-finalizer/
+*.log
+tmp/chat-review/
+tmp/
+output/
+# Original organizer attachments and presentations stay local; source CSV and
+# reproducible staging scripts are versioned separately.
+docs/sources/**/*.xlsx
+docs/sources/**/*.pdf
+docs/sources/**/*.pptx

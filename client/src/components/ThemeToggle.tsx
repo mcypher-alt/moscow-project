@@ -19,7 +19,7 @@ export function ThemeToggle() {
             ) : (
                 <>
                     <Moon className="mr-2 h-4 w-4" />
-                    <span>Темная</span>
+                    <span>Тёмная</span>
                 </>
             )}
         </Button>

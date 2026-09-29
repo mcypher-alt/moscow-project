@@ -1,229 +1,108 @@
 import { prisma } from '../db.js';
 import { predictIncidentRisk } from '../services/mlClient.service.js';
-import { MLInferenceRequest, SensorChannelBatch } from '../services/mlMock.service.js';
 import { saveHotAlert } from '../services/alertCache.service.js';
+let running = false;
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-let isRunning = false;
-let lastProcessedEventId: bigint = 0n;
-
-const BATCH_SIZE = 50;
-const TICK_INTERVAL_MS = 2000;
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function processTelemetryCycle() {
-  // 1. Выбираем события телеметрии с подтягиванием связанных моделей
-  const events = await prisma.eventLog.findMany({
-    where: {
-      id: { gt: lastProcessedEventId },
-    },
-    take: BATCH_SIZE,
-    orderBy: { id: 'asc' },
-    include: {
-      channel: {
-        include: {
-          systemObject: true,
-        },
-      },
-    },
-  });
-
-  if (events.length === 0) {
-    return;
-  }
-
-  // Безопасное чтение последнего элемента батча
-  const lastEvent = events[events.length - 1];
-  if (lastEvent) {
-    lastProcessedEventId = lastEvent.id;
-  }
-
-  // 2. Группировка событий по объектам диспетчеризации
-  type EventItem = (typeof events)[number];
-  const groupedByObject = new Map<number, EventItem[]>();
-
-  for (const event of events) {
-    const objId = event.channel.systemObjectId;
-    const currentGroup = groupedByObject.get(objId);
-
-    if (currentGroup) {
-      currentGroup.push(event);
-    } else {
-      groupedByObject.set(objId, [event]);
-    }
-  }
-
-  // 3. Формирование пакетов каналов и вызов ML-инференса для каждого объекта
-  for (const [objectId, objectEvents] of groupedByObject) {
-    const firstObjectEvent = objectEvents[0];
-    if (!firstObjectEvent) continue;
-
-    const systemObject = firstObjectEvent.channel.systemObject;
-
-    // Группировка событий по датчикам (каналам) объекта
-    const channelsMap = new Map<number, EventItem[]>();
-    for (const ev of objectEvents) {
-      const channelGroup = channelsMap.get(ev.channelId);
-      if (channelGroup) {
-        channelGroup.push(ev);
-      } else {
-        channelsMap.set(ev.channelId, [ev]);
-      }
-    }
-
-    const channelsPayload: SensorChannelBatch[] = Array.from(channelsMap.entries()).flatMap(
-      ([chId, chEvents]) => {
-        const firstChEvent = chEvents[0];
-        if (!firstChEvent) return [];
-
-        const meta = firstChEvent.channel;
-        return [
-          {
-            channelId: chId,
-            systemTag: meta.systemTag,
-            sensorName: meta.sensorName,
-            systemType: meta.systemType,
-            sensorType: meta.sensorType,
-            readings: chEvents.map((e) => ({
-              recordedAt: e.recordedAt.toISOString(),
-              numericValue: e.numericValue,
-              rawValue: e.rawValue,
-              isAlarm: e.isAlarm,
-            })),
-          },
-        ];
-      }
-    );
-
-    const payload: MLInferenceRequest = {
-      systemObjectId: objectId,
-      dispatcherName: systemObject.dispatcherName,
-      timeHorizonHours: 24,
-      timestamp: new Date().toISOString(),
-      channels: channelsPayload,
-    };
-
-    try {
-      // 4. Проверяем, есть ли уже незакрытый инцидент по этому объекту
-      const activeIncident = await prisma.incident.findFirst({
-        where: {
-          systemObjectId: objectId,
-          status: { in: ['OPEN', 'IN_PROGRESS'] },
-        },
-      });
-
-      const mlResponse = await predictIncidentRisk(payload);
-
-      // Если аномалий нет — идем к следующему объекту
-      if (!mlResponse.isIncidentPredicted) {
-        continue;
-      }
-
-      // Определяем датчик, вызвавший тревогу
-      const triggeredChannel = mlResponse.channelId
-        ? channelsPayload.find((c) => c.channelId === mlResponse.channelId)
-        : null;
-
-      const sensorLabel = triggeredChannel
-        ? `датчик "${triggeredChannel.sensorName}" (#${triggeredChannel.channelId})`
-        : mlResponse.channelId
-        ? `датчик #${mlResponse.channelId}`
-        : null;
-
-      // =========================================================================
-      // ВАРИАНТ А: Объект уже зафиксирован (АГРЕГАЦИЯ / ДОПОЛНЕНИЕ ПРИЧИНЫ)
-      // =========================================================================
-      if (activeIncident) {
-        // Если датчик еще не упомянут в причине — дописываем его, не плодя дубли
-        if (sensorLabel && !activeIncident.reason.includes(sensorLabel)) {
-          const updatedReason = `${activeIncident.reason}; также сработал ${sensorLabel}`;
-
-          // 1. Обновляем причину в базе данных
-          await prisma.incident.update({
-            where: { id: activeIncident.id },
-            data: { reason: updatedReason },
-          });
-
-          // 2. Если инцидент еще в статусе OPEN — обновляем горячую карточку в Redis
-          if (activeIncident.status === 'OPEN') {
-            try {
-              await saveHotAlert({
-                id: activeIncident.id,
-                systemObjectId: objectId,
-                dispatcherName: systemObject.dispatcherName,
-                scenario: activeIncident.scenario,
-                recommendation: activeIncident.recommendation,
-                horizon: activeIncident.horizon,
-                reason: updatedReason,
-              });
-            } catch (cacheErr) {
-              console.error('Ошибка обновления алерта в Valkey/Redis:', cacheErr);
-            }
-          }
-
-          console.log(
-            `🔄 [АГРЕГАЦИЯ] Объект "${systemObject.dispatcherName}": дополнен ${sensorLabel}`
-          );
-        }
-
-        // Пропускаем создание нового инцидента
-        continue;
-      }
-
-      // =========================================================================
-      // ВАРИАНТ Б: Новый инцидент (ПЕРВИЧНОЕ СОЗДАНИЕ)
-      // =========================================================================
-      const incident = await prisma.incident.create({
-        data: {
-          systemObjectId: objectId,
-          scenario: mlResponse.incidentType,
-          recommendation: mlResponse.recommendation,
-          horizon: mlResponse.horizon,
-          reason: mlResponse.reason,
-          status: 'OPEN',
-        },
-      });
-
-      console.log(
-        `🚨 [НОВАЯ АВАРИЯ] Объект "${systemObject.dispatcherName}": ${mlResponse.incidentType} (Срок: ${mlResponse.horizon})`
-      );
-
-      // Кладем в оперативный кэш Redis/Valkey
+export async function processTelemetryCycle() {
+  const jobs = await prisma.forecastJob.findMany({ where: { retryAt: { lte: new Date() } }, take: 20, orderBy: { updatedAt: 'asc' } });
+  // Bounded concurrency prevents a slow object from blocking every other object.
+  for (let index = 0; index < jobs.length; index += 4) {
+    await Promise.all(jobs.slice(index, index + 4).map(async job => {
       try {
-        await saveHotAlert({
-          id: incident.id,
-          systemObjectId: objectId,
-          dispatcherName: systemObject.dispatcherName,
-          scenario: mlResponse.incidentType,
-          recommendation: mlResponse.recommendation,
-          horizon: mlResponse.horizon,
-          reason: mlResponse.reason,
+        const object = await prisma.systemObject.findUniqueOrThrow({ where: { id: job.systemObjectId } });
+        const [latest, first] = await Promise.all([
+          prisma.eventLog.findFirst({ where: { channel: { systemObjectId: object.id } }, orderBy: { recordedAt: 'desc' } }),
+          prisma.eventLog.findFirst({ where: { channel: { systemObjectId: object.id } }, orderBy: { recordedAt: 'asc' } }),
+        ]);
+        if (!latest || !first) {
+          await prisma.forecastJob.deleteMany({ where: { systemObjectId: object.id, revision: job.revision } });
+          return;
+        }
+        const since = new Date(latest.recordedAt);
+        since.setUTCMinutes(0, 0, 0);
+        since.setUTCHours(since.getUTCHours() - 167);
+        // Aggregate in PostgreSQL rather than transferring a week of raw events.
+        // These fields mirror the original DuckDB hourly training aggregation.
+        const hourly = await prisma.$queryRaw<Array<{
+          recordedAt: Date; events: number; alarms: number; active_channels: number; numeric_count: number;
+          sensor_mean: number | null; sensor_min: number | null; sensor_max: number | null; sensor_std: number | null;
+          fire_alarms: number; flood_alarms: number; pump_alarms: number; security_alarms: number; temperature_alarms: number;
+        }>>`
+          SELECT date_trunc('hour', e."recordedAt") AS "recordedAt",
+            count(*)::double precision AS events,
+            count(*) FILTER (WHERE e."isAlarm")::double precision AS alarms,
+            count(DISTINCT e."channelId")::double precision AS active_channels,
+            count(e."numericValue")::double precision AS numeric_count,
+            avg(e."numericValue") AS sensor_mean, min(e."numericValue") AS sensor_min,
+            max(e."numericValue") AS sensor_max, stddev_pop(e."numericValue") AS sensor_std,
+            count(*) FILTER (WHERE e."isAlarm" AND c."systemType" = 'Пожарная охрана')::double precision AS fire_alarms,
+            count(*) FILTER (WHERE e."isAlarm" AND c."sensorType" = 'Датчик затопления')::double precision AS flood_alarms,
+            count(*) FILTER (WHERE e."isAlarm" AND c."sensorType" = 'Состояние насоса')::double precision AS pump_alarms,
+            count(*) FILTER (WHERE e."isAlarm" AND c."systemType" = 'Охранная подсистема')::double precision AS security_alarms,
+            count(*) FILTER (WHERE e."isAlarm" AND c."systemType" = 'Температурная подсистема')::double precision AS temperature_alarms
+          FROM "EventLog" e JOIN "SensorChannel" c ON c.id = e."channelId"
+          WHERE c."systemObjectId" = ${object.id} AND e."recordedAt" >= ${since} AND e."recordedAt" <= ${latest.recordedAt}
+          GROUP BY date_trunc('hour', e."recordedAt") ORDER BY "recordedAt"
+        `;
+        const prediction = await predictIncidentRisk({ systemObjectId: object.id, dispatcherName: object.dispatcherName,
+          objectKind: object.objectKind, timestamp: latest.recordedAt.toISOString(), historyStart: first.recordedAt.toISOString(),
+          timeHorizonHours: 24, channels: [], hourly: hourly.map(row => ({ ...row, recordedAt: row.recordedAt.toISOString() })) });
+        const work = await prisma.workRequest.findMany({ where: { systemObjectId: object.id,
+          startsAt: { lte: new Date(latest.recordedAt.getTime() + prediction.horizonHours * 3600000) },
+          endsAt: { gte: latest.recordedAt } }, orderBy: { startsAt: 'asc' }, take: 21 });
+        if (work.length) {
+          // Context is preserved in the forecast, without changing a calibrated score
+          // or assuming that a work request explains/suppresses an alarm.
+          prediction.reason += ` Заявки, пересекающие горизонт прогноза: ${work.slice(0, 20).map(v => `${v.externalId} (${v.status})`).join('; ')}${work.length > 20 ? '; и другие' : ''}.`;
+          prediction.recommendation += ' Сопоставить показания со статусами и содержанием этих работ; причинная связь не установлена.';
+        }
+        const incident = await prisma.$transaction(async tx => {
+          const forecast = await tx.forecast.upsert({
+            where: { systemObjectId_evaluatedAt_modelVersion: { systemObjectId: object.id,
+              evaluatedAt: new Date(prediction.evaluatedAt), modelVersion: prediction.modelVersion } },
+            update: { probability: prediction.probability, threshold: prediction.threshold,
+              isIncidentPredicted: prediction.isIncidentPredicted, reason: prediction.reason,
+              recommendation: prediction.recommendation }, create: { systemObjectId: object.id, evaluatedAt: new Date(prediction.evaluatedAt),
+              probability: prediction.probability, threshold: prediction.threshold,
+              isIncidentPredicted: prediction.isIncidentPredicted, horizonHours: prediction.horizonHours,
+              modelVersion: prediction.modelVersion, scenario: prediction.incidentType,
+              reason: prediction.reason, recommendation: prediction.recommendation },
+          });
+          let created = null;
+          // Keep every forecast, but one open incident per object/scenario to avoid alert storms.
+          if (prediction.isIncidentPredicted && !await tx.incident.findFirst({ where: { OR: [
+            { forecastId: forecast.id }, { systemObjectId: object.id, scenario: prediction.incidentType,
+              status: { in: ['OPEN', 'IN_PROGRESS', 'CONFIRMED'] } },
+          ] } })) {
+            created = await tx.incident.create({ data: { systemObjectId: object.id, forecastId: forecast.id,
+              probability: prediction.probability, modelVersion: prediction.modelVersion,
+              scenario: prediction.incidentType, horizon: prediction.horizon, reason: prediction.reason,
+              recommendation: prediction.recommendation } });
+          }
+          await tx.forecastJob.deleteMany({ where: { systemObjectId: object.id, revision: job.revision } });
+          return created;
         });
-      } catch (cacheErr) {
-        console.error('Ошибка сохранения алерта в Valkey/Redis:', cacheErr);
+        if (incident) {
+          // PostgreSQL remains authoritative if the notification cache is unavailable.
+          await saveHotAlert({ ...incident, dispatcherName: object.dispatcherName,
+            createdAt: incident.createdAt.toISOString() }).catch(error => console.error('Alert cache unavailable', error));
+        }
+      } catch (error) {
+        console.error(`Inference failed for ${job.systemObjectId}:`, error instanceof Error ? error.message : 'Unknown failure');
+        await prisma.forecastJob.updateMany({ where: { systemObjectId: job.systemObjectId, revision: job.revision },
+          data: { attempts: { increment: 1 }, lastError: 'Inference failed; inspect server logs',
+            retryAt: new Date(Date.now() + Math.min(60000, 2000 * 2 ** Math.min(job.attempts, 5))) } });
       }
-    } catch (err) {
-      console.error(`Ошибка при инференсе объекта ${objectId}:`, err);
-    }
+    }));
   }
 }
-
 export async function startTelemetryWorker() {
-  if (isRunning) return;
-  isRunning = true;
-  console.log('🚀 Фоновый воркер телеметрии запущен');
-
-  while (isRunning) {
-    try {
-      await processTelemetryCycle();
-    } catch (error) {
-      console.error('Ошибка в такте воркера телеметрии:', error);
-    }
-    await sleep(TICK_INTERVAL_MS);
+  if (running) return;
+  running = true;
+  while (running) {
+    try { await processTelemetryCycle(); } catch (error) { console.error('Telemetry worker error', error); }
+    await sleep(2000);
   }
 }
-
-export function stopTelemetryWorker() {
-  isRunning = false;
-  console.log('Фоновый воркер остановлен');
-}
+export function stopTelemetryWorker() { running = false; }

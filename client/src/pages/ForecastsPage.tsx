@@ -1,3 +1,4 @@
+import { MaintenanceDialog } from '../components/MaintenanceDialog';
 import { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 
@@ -5,49 +6,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 
-interface Forecast {
-    id: string;
-    objectId: number;
-    objectName: string;
-    incidentType: string;
-    horizon: string;
-    reason: string;
-    recommendation: string;
-    status: 'ACTIVE' | 'IN_PROGRESS' | 'CONFIRMED' | 'FALSE_POSITIVE';
-}
-
-const forecasts: Forecast[] = [
-    {
-        id: 'forecast-1',
-        objectId: 5122,
-        objectName: 'ДУ объект Альфа',
-        incidentType: 'Перегрев подшипника насоса',
-        horizon: '24–48 часов',
-        reason: 'Резкий рост вибрации на фоне падения давления масла',
-        recommendation: 'Остановить агрегат на ТО и направить дежурную бригаду',
-        status: 'ACTIVE',
-    },
-    {
-        id: 'forecast-2',
-        objectId: 3814,
-        objectName: 'Коллектор №3814',
-        incidentType: 'Повышенный пожарный риск',
-        horizon: '24 часа',
-        reason: 'Аномальный рост температуры в кабельном отсеке',
-        recommendation: 'Проверить кабельную линию и вентиляцию отсека',
-        status: 'IN_PROGRESS',
-    },
-];
-
-const statusLabels: Record<Forecast['status'], string> = {
-    ACTIVE: 'Активный',
-    IN_PROGRESS: 'В работе',
-    CONFIRMED: 'Подтверждён',
-    FALSE_POSITIVE: 'Ложное срабатывание',
-};
+import { useForecasts } from '../hooks/useObjects';
 
 export function ForecastsPage() {
     const [search, setSearch] = useState('');
+    const [offset, setOffset] = useState(0);
+    const query = useForecasts(offset);
+    const forecasts = useMemo(() => (query.data ?? []).map(item => ({
+        id: item.id, objectId: item.systemObjectId, objectName: item.systemObject?.dispatcherName ?? String(item.systemObjectId),
+        incidentType: item.scenario, horizon: `${item.horizonHours} часа`, reason: item.reason,
+        recommendation: item.recommendation, status: item.isIncidentPredicted ? 'ACTIVE' : 'BELOW_THRESHOLD',
+        probability: item.probability, threshold: item.threshold, evaluatedAt: item.evaluatedAt, modelVersion: item.modelVersion,
+    })), [query.data]);
 
     const filtered = useMemo(() => {
         const query = search.trim().toLowerCase();
@@ -67,7 +37,7 @@ export function ForecastsPage() {
                 .toLowerCase()
                 .includes(query)
         );
-    }, [search]);
+    }, [search, forecasts]);
 
     return (
         <div className="space-y-6 p-6">
@@ -102,6 +72,10 @@ export function ForecastsPage() {
                 </CardContent>
             </Card>
 
+            <p className="text-sm text-muted-foreground">Модель прогнозирует тревожное событие в следующие 24 часа; тип и физическая причина инцидента не установлены.</p>
+            {query.isLoading && <p role="status">Загрузка прогнозов…</p>}
+            {query.isError && <p role="alert">Не удалось загрузить прогнозы.</p>}
+            <div className="flex gap-4"><button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 100))}>Назад</button><span>Записи {offset + 1}–{offset + forecasts.length}</span><button disabled={forecasts.length < 100} onClick={() => setOffset(offset + 100)}>Далее</button></div>
             <div className="space-y-4">
                 {filtered.map((forecast) => (
                     <Card key={forecast.id}>
@@ -113,7 +87,9 @@ export function ForecastsPage() {
                                     </CardTitle>
 
                                     <p className="mt-1 text-sm text-muted-foreground">
-                                        {forecast.objectName} · объект #{forecast.objectId}
+                                        {forecast.objectName} · объект #{forecast.objectId} · {new Date(forecast.evaluatedAt).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }) + " МСК"}
+                                        <br />Модель: {forecast.modelVersion}
+                                        <br />Порог предупреждения: {forecast.threshold.toFixed(1)}%
                                     </p>
                                 </div>
 
@@ -124,7 +100,7 @@ export function ForecastsPage() {
                                             : 'secondary'
                                     }
                                 >
-                                    {statusLabels[forecast.status]}
+                                    {forecast.status === 'ACTIVE' ? 'Выше порога' : 'Ниже порога'} ({forecast.probability.toFixed(1)}%)
                                 </Badge>
                             </div>
                         </CardHeader>
@@ -153,7 +129,7 @@ export function ForecastsPage() {
                                     Рекомендация
                                 </p>
                                 <p className="mt-1 text-sm">
-                                    {forecast.recommendation}
+                                    {forecast.recommendation}<div className="mt-2"><MaintenanceDialog objectId={forecast.objectId} /></div>
                                 </p>
                             </div>
                         </CardContent>

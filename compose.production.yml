@@ -1,0 +1,58 @@
+# Standalone production deployment: docker compose -f compose.production.yml up --build -d
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: moscollector
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: moscollector
+    volumes: ["production-db:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U moscollector"]
+      interval: 5s
+      retries: 20
+  valkey:
+    image: valkey/valkey:8-alpine
+    restart: unless-stopped
+  ml-service:
+    build: ./ml-service
+    restart: unless-stopped
+    environment:
+      ML_BATCH_FEATURES: ${ML_BATCH_FEATURES:-0}
+    volumes: ["${MODEL_DIR:?Set MODEL_DIR}:/models:ro"]
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+  server:
+    build: ./server
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?Set URL-encoded production DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?Set HTTPS origin}
+      LDAP_URL: ${LDAP_URL:-}
+      ML_SERVICE_URL: http://ml-service:8000/predict
+      REDIS_URL: redis://valkey:6379
+      PORT: 5000
+    depends_on:
+      postgres: { condition: service_healthy }
+    command: ["sh", "-c", "npx prisma migrate deploy && npx tsc && node dist/index.js"]
+  web:
+    build: { context: ., dockerfile: deploy/client.Dockerfile }
+    restart: unless-stopped
+    ports: ["443:443"]
+    volumes: ["${TLS_CERT_DIR:?Set TLS_CERT_DIR}:/certs:ro"]
+    depends_on: [server]
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: moscollector
+      POSTGRES_DB: moscollector
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes: ["${BACKUP_DIR:?Set BACKUP_DIR}:/backups", "./deploy/backup.sh:/backup.sh:ro"]
+    entrypoint: ["sh", "/backup.sh"]
+    depends_on:
+      postgres: { condition: service_healthy }
+volumes:
+  production-db:

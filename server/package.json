@@ -7,7 +7,10 @@
     "seed:dispatchers": "tsx prisma/seed-dispatchers.ts",
     "seed:csv": "tsx prisma/seed-csv.ts",
     "seed:redis": "tsx prisma/seed-redis.ts",
-    "seed:all": "npm run seed:dispatchers && npm run seed:csv"
+    "seed:all": "npm run seed:dispatchers && npm run seed:csv",
+    "build": "tsc",
+    "test:acceptance": "tsx tests/acceptance.ts",
+    "bootstrap": "tsx prisma/bootstrap.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
@@ -18,9 +21,12 @@
     "csv-parse": "^7.0.2",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "fast-xml-parser": "^5.11.1",
     "helmet": "^8.3.0",
     "ioredis": "^6.0.0",
-    "jsonwebtoken": "^9.0.3"
+    "jsonwebtoken": "^9.0.3",
+    "ldapts": "^9.2.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
@@ -29,14 +35,16 @@
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.11.0",
+    "@types/supertest": "^7.2.1",
     "prisma": "^6.19.3",
+    "supertest": "^7.3.0",
     "tsx": "^4.23.13",
     "typescript": "^5.3.3"
   },
   "overrides": {
     "lodash": "^4.17.21",
     "valibot": ">=1.0.0",
-    "deepmerge-ts": "^7.1.6"
+    "deepmerge-ts": "8.0.0"
   },
   "prisma": {
     "seed:csv": "tsx prisma/seed-csv.ts",

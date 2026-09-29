@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { authApi, incidentsApi, alertsApi, objectsApi } from '../api';
-import type { IncidentFilters } from '../api';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { type IncidentFilters, authApi, incidentsApi, alertsApi } from '../api';
 import type {
     RecordActionPayload,
     User,
@@ -15,7 +14,6 @@ export const QUERY_KEYS = {
     auth: ['auth', 'me'] as const,
     incidents: ['incidents'] as const,
     hotAlerts: ['alerts', 'hot'] as const,
-    objects: ['objects'] as const,
 };
 
 const mockUser: User = {
@@ -97,17 +95,15 @@ export function useAuth() {
     };
 }
 
-
-
-export function useIncidents(filters?: IncidentFilters) {
+export function useIncidents(filtersOrOffset: IncidentFilters | number = 0) {
     const queryClient = useQueryClient();
 
+    const filters = typeof filtersOrOffset === 'number' ? { offset: filtersOrOffset } : filtersOrOffset;
     const incidentsQuery = useQuery({
-        // Разворачиваем префикс через spread! Ключ будет: ['incidents', { search: ... }]
         queryKey: [...QUERY_KEYS.incidents, filters],
         queryFn: () => incidentsApi.getAll(filters),
         staleTime: 30 * 1000,
-        placeholderData: keepPreviousData,
+        refetchInterval: 30000,
         enabled: !USE_MOCKS,
     });
 
@@ -121,13 +117,10 @@ export function useIncidents(filters?: IncidentFilters) {
         }) => incidentsApi.recordAction(incidentId, payload),
 
         onSuccess: () => {
-            // Инвалидируем по плоскому префиксу ['incidents']
+            for (const key of ['objects', 'summary', 'alerts']) queryClient.invalidateQueries({ queryKey: [key] });
             queryClient.invalidateQueries({
                 queryKey: QUERY_KEYS.incidents,
             });
-        },
-        onError: (err) => {
-            console.error('[recordActionMutation Error]:', err);
         },
     });
 
@@ -137,59 +130,40 @@ export function useIncidents(filters?: IncidentFilters) {
             isLoading: false,
             recordAction: async () => {},
             isRecording: false,
+            isError: false,
         };
     }
 
     return {
         incidents: incidentsQuery.data ?? [],
         isLoading: incidentsQuery.isLoading,
-        isFetching: incidentsQuery.isFetching,
         recordAction: recordActionMutation.mutateAsync,
         isRecording: recordActionMutation.isPending,
+        isError: incidentsQuery.isError,
     };
-}
-
-export function useObjectDetails(id: string | number | undefined) {
-    return useQuery({
-        queryKey: [...QUERY_KEYS.objects, String(id)],
-        queryFn: () => objectsApi.getById(id!),
-        enabled: Boolean(id), // Запрос не пойдет, пока id не определен из useParams
-        staleTime: 30 * 1000,
-    });
-}
-
-export function useObjects() {
-    return useQuery({
-        queryKey: QUERY_KEYS.objects, // ключ ['objects']
-        queryFn: objectsApi.getAll,
-        staleTime: 30 * 1000,
-    });
 }
 
 export function useHotAlerts(limit = 10) {
     const queryClient = useQueryClient();
 
     const alertsQuery = useQuery({
-        queryKey: [...QUERY_KEYS.hotAlerts, limit],
+        queryKey: QUERY_KEYS.hotAlerts,
         queryFn: () => alertsApi.getHot(limit),
-        staleTime: Infinity,
+        staleTime: 30000,
+        refetchInterval: 30000,
         enabled: !USE_MOCKS,
     });
 
     const ackMutation = useMutation({
         mutationFn: alertsApi.acknowledge,
         onSuccess: () => {
-            // Инвалидируем горячие алерты (Redis)
+            for (const key of ['objects', 'summary', 'alerts']) queryClient.invalidateQueries({ queryKey: [key] });
             queryClient.invalidateQueries({
                 queryKey: QUERY_KEYS.hotAlerts,
             });
-            // Инвалидируем инциденты (Postgres) — найдет ['incidents', filters]
             queryClient.invalidateQueries({
                 queryKey: QUERY_KEYS.incidents,
             });
-        },
-        onError: (err) => {
-            console.error('[ackMutation Error] Ошибка квитирования:', err);
         },
     });
 
@@ -197,6 +171,7 @@ export function useHotAlerts(limit = 10) {
         if (USE_MOCKS) return;
 
         const streamUrl = alertsApi.getStreamUrl();
+
         const eventSource = new EventSource(streamUrl, {
             withCredentials: true,
         });
@@ -210,6 +185,7 @@ export function useHotAlerts(limit = 10) {
             });
         };
 
+        eventSource.addEventListener('open', handleUpdate);
         eventSource.addEventListener('hot_alert', handleUpdate);
         eventSource.addEventListener('alert_resolved', handleUpdate);
 
@@ -230,6 +206,7 @@ export function useHotAlerts(limit = 10) {
             isLoading: false,
             acknowledge: () => {},
             isAcking: false,
+            isError: false,
         };
     }
 
@@ -238,5 +215,6 @@ export function useHotAlerts(limit = 10) {
         isLoading: alertsQuery.isLoading,
         acknowledge: ackMutation.mutate,
         isAcking: ackMutation.isPending,
+        isError: alertsQuery.isError,
     };
 }

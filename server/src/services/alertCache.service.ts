@@ -3,6 +3,7 @@ import { redis } from '../redis.js';
 import { EventEmitter } from 'node:events';
 
 export const alertEvents = new EventEmitter();
+alertEvents.setMaxListeners(100);
 
 // 7 дней как страховочный трос от зависших алертов
 const ALERT_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -12,12 +13,12 @@ export interface HotAlertPayload {
     id: string | number;
     systemObjectId: number;
     dispatcherName: string;
-    probability?: number;
     scenario: string;         // Тип инцидента (что сломается)
     horizon: string;          // Временной горизонт наступления
     reason: string;           // Причина / триггер
     recommendation: string | null;
     createdAt?: string;
+    probability?: number | null;
 }
 
 export async function saveHotAlert(incident: HotAlertPayload) {
@@ -34,10 +35,10 @@ export async function saveHotAlert(incident: HotAlertPayload) {
     await redis.set(key, JSON.stringify(payload), 'EX', ALERT_TTL_SECONDS);
 
     // 2. Пушим событие подписчикам SSE для вывода карточки в UI
-    alertEvents.emit('hot_alert', payload);
 
     // 3. Индексируем в Sorted Set по таймстемпу (свежие инциденты будут первыми)
     await redis.zadd(ACTIVE_ALERTS_SET, timestamp, alertId);
+    alertEvents.emit('hot_alert', payload);
     }
 
     export async function resolveHotAlert(incidentId: string | number) {

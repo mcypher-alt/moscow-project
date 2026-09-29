@@ -4,7 +4,8 @@ export type IncidentStatus =
   | "OPEN"
   | "IN_PROGRESS"
   | "CONFIRMED"
-  | "FALSE_POSITIVE";
+  | "FALSE_POSITIVE"
+  | "RESOLVED";
 
 export interface User {
   id: string;
@@ -25,6 +26,13 @@ export interface SystemObject {
   name?: string;
   address?: string;
   description?: string;
+  objectKind?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  incidents?: Incident[];
+  forecasts?: Forecast[];
+  channels?: { id: number; sensorName: string; systemTag?: string; systemType?: string; sensorType?: string | null; events: { rawValue: string | null; numericValue: number | null; isAlarm: boolean; recordedAt: string }[] }[];
+  workRequests?: { externalId: string; status: string; description: string }[];
 }
 
 export interface Incident {
@@ -37,6 +45,8 @@ export interface Incident {
   scenario: string;
   horizon: string;
   reason: string;
+  probability?: number | null;
+  modelVersion?: string | null;
 
   status: IncidentStatus;
 
@@ -49,6 +59,7 @@ export interface Incident {
 }
 
 export interface DispatcherAction {
+  reasonCode?: string | null;
   id: string;
   incidentId: string;
   userId: string;
@@ -63,7 +74,7 @@ export interface RecordActionPayload {
   decision: string;
   comment?: string;
   timestamp?: string;
-  status?: 'OPEN' | 'IN_PROGRESS' | 'CONFIRMED' | 'FALSE_POSITIVE' | string;
+  reasonCode?: string;
 }
 
 export interface HotAlert {
@@ -72,7 +83,6 @@ export interface HotAlert {
   systemObjectId: number;
   dispatcherName: string;
 
-  probability?: number;
   scenario: string;
   horizon: string;
   reason: string;
@@ -80,44 +90,24 @@ export interface HotAlert {
   recommendation: string | null;
 
   createdAt?: string;
+  probability?: number | null;
+}
+
+export interface Forecast {
+  id: string;
+  systemObjectId: number;
+  systemObject?: SystemObject;
+  evaluatedAt: string;
+  probability: number;
+  threshold: number;
+  isIncidentPredicted: boolean;
+  horizonHours: number;
+  modelVersion: string;
+  scenario: string;
+  reason: string;
+  recommendation: string;
 }
 
 export interface AlertResolvedEvent {
   id: string;
-}
-
-// src/types/index.ts (или src/types.ts)
-
-export interface ObjectSensorItem {
-  id: number;
-  systemTag: string;
-  name: string;
-  systemType: string;
-  sensorType: string | null;
-}
-
-export interface ObjectActiveIncident {
-  id: string;
-  scenario: string;
-  horizon: string;
-  reason: string;
-  recommendation: string | null;
-}
-
-export interface ObjectParentNode {
-  id: number;
-  name: string;
-}
-
-export interface SystemObjectDetails {
-  id: number;
-  name: string;
-  level: number;
-  objectKind: string;
-  kindLabel: string;
-  parent: ObjectParentNode | null;
-  childrenCount: number;
-  status: 'CRITICAL' | 'NORMAL';
-  incident: ObjectActiveIncident | null;
-  sensors: ObjectSensorItem[];
 }

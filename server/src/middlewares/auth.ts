@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { Role } from '@prisma/client';
 
 import { JWT_SECRET } from '../config/jwt.js';
+import { prisma } from '../db.js';
 
 interface JwtCustomPayload {
     id: string;
@@ -18,7 +19,7 @@ declare global {
     }
 }
 
-export const authenticateJwt = (req: Request, res: Response, next: NextFunction) => {
+export const authenticateJwt = async (req: Request, res: Response, next: NextFunction) => {
     let token: string | undefined;
 
     // 1. Проверяем наличие токена в HttpOnly Cookie
@@ -38,7 +39,9 @@ export const authenticateJwt = (req: Request, res: Response, next: NextFunction)
         const secret = JWT_SECRET;
         const decoded = jwt.verify(token, secret) as JwtCustomPayload;
 
-        req.user = decoded;
+        const user = await prisma.user.findUnique({ where: { id: decoded.id }, select: { id: true, role: true } });
+        if (!user) return res.status(401).json({ error: 'Пользователь не найден' });
+        req.user = user;
         next();
     } catch (err: any) {
     console.error('Ошибка верификации токена:', err.message);

@@ -22,6 +22,7 @@ model User {
     createdAt DateTime           @default(now())
 
     actions   DispatcherAction[]
+    repairDrafts RepairDraft[]
 }
 
 // 1. Дерево объектов диспетчера (Скриншот 2)
@@ -30,6 +31,9 @@ model SystemObject {
     level          Int            // иерархия_уровень (3)
     objectKind     String         // вид_объекта ("controlHouse", "guardObject")
     dispatcherName String         // диспетчерское_название_объекта ("ДУ объект Альфа")
+    latitude       Float?
+    longitude      Float?
+    address        String?
 
     // Самоссылающаяся иерархия (родитель -> потомки)
     parentId       Int?           // родитель (5, 6, 7...)
@@ -38,6 +42,10 @@ model SystemObject {
 
     channels       SensorChannel[]
     incidents      Incident[]
+    forecasts      Forecast[]
+    forecastJob    ForecastJob?
+    workRequests   WorkRequest[]
+    repairDrafts RepairDraft[]
 
     @@index([parentId])
 }
@@ -81,6 +89,7 @@ enum IncidentStatus {
     IN_PROGRESS       // Диспетчер принял меры (отправил бригаду)
     CONFIRMED         // Авария реально подтвердилась / предотвращена
     FALSE_POSITIVE    // Ложное срабатывание (постфактум проверили — всё чисто)
+    RESOLVED
 }
 
 model Incident {
@@ -92,6 +101,9 @@ model Incident {
   channel          SensorChannel?     @relation(fields: [channelId], references: [id])
 
   scenario         String             // Тип инцидента (mlResponse.incidentType)
+  probability      Float?
+  modelVersion     String?
+  forecastId       String?            @unique
   horizon          String             // Человекочитаемый горизонт ("24-48 часов", "2-4 часа")
   reason           String             // Прямая физическая причина (триггер)
   recommendation   String?            // Инструкция для диспетчера
@@ -117,6 +129,69 @@ model DispatcherAction {
     user       User     @relation(fields: [userId], references: [id])
 
     decision   String   // "Выезд бригады", "Сброс"
+    reasonCode String?
     comment    String?
     createdAt  DateTime @default(now())
+}
+
+// Durable inference queue: revision prevents losing telemetry arriving during inference.
+model ForecastJob {
+  systemObjectId Int @id
+  systemObject SystemObject @relation(fields: [systemObjectId], references: [id])
+  revision Int @default(1)
+  updatedAt DateTime @updatedAt
+  attempts Int @default(0)
+  lastError String?
+  retryAt DateTime @default(now())
+}
+
+model Forecast {
+  id String @id @default(uuid())
+  systemObjectId Int
+  systemObject SystemObject @relation(fields: [systemObjectId], references: [id])
+  evaluatedAt DateTime
+  probability Float
+  threshold Float
+  isIncidentPredicted Boolean
+  horizonHours Int
+  modelVersion String
+  scenario String
+  reason String
+  recommendation String
+  createdAt DateTime @default(now())
+  @@unique([systemObjectId, evaluatedAt, modelVersion])
+  @@index([createdAt])
+}
+
+model WorkRequest {
+  externalId String @id
+  systemObjectId Int
+  systemObject SystemObject @relation(fields: [systemObjectId], references: [id])
+  status String
+  description String
+  startsAt DateTime?
+  endsAt DateTime?
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id String @id @default(uuid())
+  userId String?
+  method String
+  path String
+  status Int
+  createdAt DateTime @default(now())
+  @@index([createdAt])
+}
+
+model RepairDraft {
+  id String @id @default(uuid())
+  systemObjectId Int
+  systemObject SystemObject @relation(fields: [systemObjectId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "RepairDraft_object_fkey")
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "RepairDraft_user_fkey")
+  content String
+  recommendationVersion String
+  createdAt DateTime @default(now())
+  @@index([systemObjectId, createdAt])
 }

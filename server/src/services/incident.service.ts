@@ -1,23 +1,23 @@
 import { prisma } from '../db.js';
 import { resolveHotAlert } from './alertCache.service.js';
 import { IncidentStatus, Prisma } from '@prisma/client';
+import { decisions } from './decisions.js';
 
 export interface IncidentFilterQuery {
+    offset?: number;
     status?: IncidentStatus;
     systemObjectId?: number;
     search?: string;
     dateFrom?: string; // ISO-строка, например: '2026-09-20T00:00:00.000Z'
     dateTo?: string;   // ISO-строка, например: '2026-09-21T23:59:59.999Z'
-    take?: number;     // Пагинация: сколько записей вернуть
-    skip?: number;     // Пагинация: сколько пропустить
 }
 
 interface RecordActionParams {
     incidentId: string;
     userId: string;
     decision: string;
-    status?: IncidentStatus; // Позволяем передавать финальный статус (CONFIRMED / FALSE_POSITIVE)
     comment?: string;
+    reasonCode?: string;
 }
 
 /**
@@ -59,14 +59,13 @@ export async function getAllIncidents(filters: IncidentFilterQuery = {}) {
     }
 
     return prisma.incident.findMany({
+        take: 100,
+        skip: filters.offset ?? 0,
         where,
-        take: Number(filters.take) || 50, // <-- ВОТ ЗДЕСЬ: дефолтный лимит 50 записей
-        skip: Number(filters.skip) || 0,
         include: {
             systemObject: true,
             actions: {
                 orderBy: { createdAt: 'desc' },
-                take: 10, // Чтобы не раздувать ответ историей действий
             },
         },
         orderBy: {
@@ -84,59 +83,31 @@ export async function recordDispatcherAction({
     incidentId,
     userId,
     decision,
-    status = IncidentStatus.IN_PROGRESS, // Если статус не передан, ставим IN_PROGRESS
     comment,
+    reasonCode,
 }: RecordActionParams) {
+    const status = decisions[decision];
+    if (!status) throw new Error('INVALID_DECISION');
     // 1. Атомарно фиксируем действие и меняем статус инцидента
-    const [action] = await prisma.$transaction([
-        prisma.dispatcherAction.create({
-            data: {
-                incidentId,
-                userId,
-                decision,
-                comment,
-            },
-        }),
-        prisma.incident.update({
-            where: { id: incidentId },
-            data: {
-                status, // <-- ВОТ ЗДЕСЬ: теперь можно передавать CONFIRMED или FALSE_POSITIVE
-            },
-        }),
-    ]);
+    const action = await prisma.$transaction(async tx => {
+        const changed = await tx.incident.updateMany({
+            where: { id: incidentId, status: { in: ['OPEN', 'IN_PROGRESS', 'CONFIRMED'] } }, data: { status },
+        });
+        if (!changed.count) {
+            const existing = await tx.incident.findUnique({ where: { id: incidentId } });
+            throw new Error(existing ? 'INCIDENT_CLOSED' : 'INCIDENT_NOT_FOUND');
+        }
+        return tx.dispatcherAction.create({ data: { incidentId, userId, decision, comment, reasonCode } });
+    });
 
     // 2. Только после успешного коммита в Postgres снимаем алерт с горячего экрана
     try {
         await resolveHotAlert(incidentId);
     } catch (cacheError) {
+        // Логируем ошибку, но не прерываем выполнение:
+        // Действие диспетчера уже надежно зафиксировано в PostgreSQL!
         console.error(`[Cache Error] Failed to resolve hot alert ${incidentId}:`, cacheError);
     }
 
     return action;
-}
-
-export async function acknowledgeIncident(incidentId: string) {
-    let updatedIncident = null;
-
-    const existing = await prisma.incident.findUnique({
-        where: { id: incidentId },
-    });
-
-    if (!existing) {
-        // Возвращаем явный null или выбрасываем 404, а не притворяемся успехом
-        console.warn(`[ACK] Инцидент ${incidentId} не найден в базе`);
-        await resolveHotAlert(incidentId);
-        return null;
-    }
-
-    updatedIncident = await prisma.incident.update({
-        where: { id: incidentId },
-        data: {
-            status: IncidentStatus.IN_PROGRESS,
-        },
-    });
-
-    await resolveHotAlert(incidentId);
-
-    return updatedIncident;
 }

@@ -67,7 +67,7 @@ export function AlertDetailsDialog({ alert, onClose, onAcknowledge, isAcking }: 
                         disabled={isAcking}
                         onClick={() => alert && onAcknowledge(alert.id)}
                     >
-                        Квитировать сигнал
+                        Принять в работу
                     </Button>
                 </div>
             </DialogContent>

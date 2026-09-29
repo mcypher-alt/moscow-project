@@ -1,0 +1,8 @@
+.git
+**/node_modules
+**/dist
+.env
+.artifact-build
+.codex-finalizer
+output
+**/__pycache__

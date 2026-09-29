@@ -41,7 +41,7 @@ export function LiveAlertsCard({ alerts, isLoading, isAcking, onAcknowledge }: P
                                 <span className="relative inline-flex rounded-full h-3 w-3 bg-destructive"></span>
                             </span>
                             <CardTitle className="text-lg font-semibold text-destructive">
-                                Активные аварийные сигналы (SSE Live)
+                                Активные аварийные сигналы — обновляются автоматически
                             </CardTitle>
                         </div>
                         <Badge variant="outline" className="border-destructive/50 text-destructive font-mono">
@@ -53,7 +53,7 @@ export function LiveAlertsCard({ alerts, isLoading, isAcking, onAcknowledge }: P
                     {isLoading ? (
                         <p className="text-sm text-muted-foreground">Подключение к шине телеметрии...</p>
                     ) : alerts.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">Активных сигналов тревоги нет. Все узлы в норме.</p>
+                        <p className="text-sm text-muted-foreground">Активных сигналов тревоги нет. Проверьте актуальность данных.</p>
                     ) : (
                         <div className="rounded-md border border-border overflow-hidden">
                             <Table>
@@ -104,7 +104,7 @@ export function LiveAlertsCard({ alerts, isLoading, isAcking, onAcknowledge }: P
                                                     disabled={isAcking}
                                                     onClick={() => handleAck(alert.id)}
                                                 >
-                                                    Квитировать
+                                                    Принять в работу
                                                 </Button>
                                             </TableCell>
                                         </TableRow>

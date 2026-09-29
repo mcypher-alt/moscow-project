@@ -14,7 +14,7 @@ import { useAuth } from '@/hooks/useDispatcher';
 const navigation = [
     {
         to: '/dashboard',
-        label: 'Дашборд',
+        label: 'Обзор',
         icon: LayoutDashboard,
     },
     {
@@ -47,11 +47,11 @@ export function AppLayout() {
             <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-border bg-card lg:flex lg:flex-col">
                 <div className="border-b border-border px-6 py-5">
                     <h1 className="text-lg font-bold">
-                        Москоллектор
+                        Moscollector
                     </h1>
 
                     <p className="mt-1 text-xs text-muted-foreground">
-                        Предиктивный мониторинг
+                        Предиктивная аналитика
                     </p>
                 </div>
 
@@ -86,7 +86,7 @@ export function AppLayout() {
                         </p>
 
                         <p className="text-xs text-muted-foreground">
-                            {user?.role ?? ''}
+                            {user?.role ? { ADMIN: 'Администратор', DISPATCHER: 'Диспетчер', ANALYST: 'Аналитик' }[user.role] : ''}
                         </p>
                     </div>
 
@@ -101,10 +101,10 @@ export function AppLayout() {
             </aside>
 
             <div className="lg:pl-64">
-                <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-border bg-background/95 px-6 backdrop-blur">
+                <header className="sticky top-0 z-20 flex min-h-16 gap-3 py-3 items-center justify-between border-b border-border bg-background/95 px-6 backdrop-blur">
                     <div>
                         <p className="font-semibold">
-                            Центр предиктивного мониторинга
+                            Центр предиктивной аналитики
                         </p>
 
                         <p className="text-xs text-muted-foreground">
@@ -114,6 +114,11 @@ export function AppLayout() {
 
                     <ThemeToggle />
                 </header>
+                <nav aria-label="Основная навигация" className="flex flex-wrap gap-2 border-b p-3 lg:hidden">
+                    {navigation.map(item => <NavLink key={item.to} to={item.to} className={({ isActive }) =>
+                        `rounded px-3 py-2 text-sm ${isActive ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>{item.label}</NavLink>)}
+                    <Button variant="outline" size="sm" onClick={() => logout()}>Выйти</Button>
+                </nav>
 
                 <main>
                     <Outlet />

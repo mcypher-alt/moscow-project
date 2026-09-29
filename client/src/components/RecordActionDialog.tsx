@@ -25,92 +25,64 @@ interface Props {
     incident?: Incident;
     onSubmit: (payload: RecordActionPayload) => Promise<unknown>;
     disabled?: boolean;
-    triggerText?: string;
-    triggerVariant?: 'default' | 'outline' | 'secondary' | 'ghost';
 }
 
 const ACTION_PRESETS = [
+    { value: 'SITE_VISIT', label: 'Выезд на объект' },
+    { value: 'INSPECTION_COMPLETED', label: 'Осмотр выполнен (записать результат)' },
+    { value: 'MONITORING', label: 'Продолжить мониторинг' },
+    { value: 'MAINTENANCE_SCHEDULED', label: 'Назначить профилактическое обслуживание' },
+    { value: 'REPAIR_COMPLETED', label: 'Ремонт завершён — закрыть' },
+    { value: 'OTHER', label: 'Другое (описать результат)' },
+    { value: 'CONFIRM_INCIDENT', label: 'Подтверждённый инцидент' },
+    { value: 'FALSE_ALARM', label: 'Ложное срабатывание' },
     { value: 'DISPATCH_EMERGENCY_TEAM', label: 'Аварийный выезд дежурной бригады (АВБ)' },
     { value: 'EQUIPMENT_SHUTDOWN', label: 'Аварийное отключение / локализация узла' },
     { value: 'REMOTE_DIAGNOSTICS', label: 'Дистанционная перекалибровка и мониторинг' },
     { value: 'INSPECTION_SCHEDULED', label: 'Включение в план ближайшего техобслуживания' },
 ];
 
-export function RecordActionDialog({
-    incidentId,
-    incident,
-    onSubmit,
-    disabled,
-    triggerText = 'Зафиксировать действие',
-    triggerVariant = 'outline',
-}: Props) {
+export function RecordActionDialog({ incidentId, incident, onSubmit, disabled }: Props) {
     const [open, setOpen] = useState(false);
-    const [decision, setDecision] = useState('DISPATCH_EMERGENCY_TEAM');
+    const [decision, setDecision] = useState('MONITORING');
     const [comment, setComment] = useState('');
     const [loading, setLoading] = useState(false);
+    const [reasonCode, setReasonCode] = useState('SENSOR_CHECK');
+    const [error, setError] = useState('');
 
     const effectiveId = useMemo(
         () => incident?.id || incidentId || '',
         [incident, incidentId]
     );
 
-    // Функция формирования текста наряда-задания
-    const generateDraftOrder = (currentDecision: string) => {
-        const actionLabel =
-            ACTION_PRESETS.find((p) => p.value === currentDecision)?.label || currentDecision;
-
-        if (!incident) {
-            return [
-                `НАРЯД-ЗАДАНИЕ ПО ИНЦИДЕНТУ #${effectiveId.slice(0, 8).toUpperCase()}`,
-                `• Решение диспетчера: ${actionLabel}`,
-                `• Время регистрации: ${new Date().toLocaleString()}`,
-                `• Примечание: Провести оперативную проверку узла.`,
-            ].join('\n');
-        }
-
-        const objectLabel = incident.systemObject?.dispatcherName
-            ? `${incident.systemObject.dispatcherName} (Объект #${incident.systemObjectId})`
-            : `Объект #${incident.systemObjectId}`;
-
-        return [
-            `НАРЯД-ЗАДАНИЕ № ${incident.id.slice(0, 8).toUpperCase()}`,
-            `• Подведомственный узел: ${objectLabel}`,
-            `• Прогнозируемая авария: ${incident.scenario}`,
-            `• Расчетный горизонт развития: ${incident.horizon}`,
-            `• Зафиксированный фактор-триггер: ${incident.reason}`,
-            `• Предписанный регламент: ${incident.recommendation || 'Согласно типовой технологической карте объекта'}`,
-            `• Принятое решение: ${actionLabel}`,
-            `• Указание диспетчера: Бригаде выехать на объект со штатным комплектом приборов. Соблюдать регламент ТБ.`,
-        ].join('\n');
-    };
-
-    // Заполняем черновик только при явном открытии диалога
     const handleOpenChange = (nextOpen: boolean) => {
         setOpen(nextOpen);
-        if (nextOpen) {
-            setComment(generateDraftOrder(decision));
-        }
+        if (nextOpen) { setComment(''); setError(''); }
     };
 
-    // Обновляем черновик при выборе другого решения в Select
     const handleDecisionChange = (newDecision: string | undefined) => {
-        if (!newDecision) return;
-        setDecision(newDecision);
-        setComment(generateDraftOrder(newDecision));
+        if (newDecision) setDecision(newDecision);
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!decision.trim()) return;
+        if (['OTHER', 'INSPECTION_COMPLETED', 'REPAIR_COMPLETED'].includes(decision) && !comment.trim()) {
+            setError('Опишите фактический результат проверки или ремонта.'); return;
+        }
 
         setLoading(true);
+        setError('');
         try {
             await onSubmit({
                 decision,
+                reasonCode,
                 comment,
                 timestamp: new Date().toISOString(),
             });
             setOpen(false);
+        } catch {
+            setError('Не удалось сохранить действие. Повторите попытку.');
         } finally {
             setLoading(false);
         }
@@ -119,10 +91,10 @@ export function RecordActionDialog({
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogTrigger
-                className={buttonVariants({ variant: triggerVariant, size: 'sm' })}
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
                 disabled={disabled}
             >
-                {triggerText}
+                Зафиксировать действие
             </DialogTrigger>
             <DialogContent className="sm:max-w-[560px]">
                 <form onSubmit={handleSubmit}>
@@ -136,29 +108,15 @@ export function RecordActionDialog({
                     <div className="grid gap-4 py-4">
                         <div className="grid gap-2">
                             <Label htmlFor="action-decision">Принимаемое оперативное решение</Label>
-                            <Select 
-                                value={decision} 
-                                onValueChange={(val) => {
-                                    if (val) handleDecisionChange(val);
-                                }}
-                            >
-                                {/* 1. Даем триггеру автовысоту и отключаем обрезку line-clamp */}
-                                <SelectTrigger 
-                                    id="action-decision" 
-                                    className="h-auto min-h-10 py-2.5 text-left whitespace-normal leading-snug [&>span]:line-clamp-none"
-                                >
-                                    <SelectValue placeholder="Выберите действие" />
+                            <Select value={decision} onValueChange={(val) => {
+                                if (val) handleDecisionChange(val);
+                            }}>
+                                <SelectTrigger id="action-decision">
+                                    <SelectValue placeholder="Выберите действие">{ACTION_PRESETS.find(preset => preset.value === decision)?.label}</SelectValue>
                                 </SelectTrigger>
-
-                                {/* 2. Контенту задаем полную ширину триггера */}
-                                <SelectContent className="w-[var(--radix-select-trigger-width)]">
+                                <SelectContent>
                                     {ACTION_PRESETS.map((preset) => (
-                                        /* 3. Элементам списка разрешаем перенос строк (whitespace-normal) */
-                                        <SelectItem 
-                                            key={preset.value} 
-                                            value={preset.value}
-                                            className="py-2.5 text-xs sm:text-sm whitespace-normal leading-snug cursor-pointer"
-                                        >
+                                        <SelectItem key={preset.value} value={preset.value}>
                                             {preset.label}
                                         </SelectItem>
                                     ))}
@@ -168,34 +126,31 @@ export function RecordActionDialog({
 
                         <div className="grid gap-2">
                             <div className="flex items-center justify-between">
-                                <Label htmlFor="action-comment">Черновик наряда / Комментарий</Label>
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 text-xs text-muted-foreground hover:text-foreground"
-                                    onClick={() => setComment(generateDraftOrder(decision))}
-                                >
-                                    Сбросить к черновику
-                                </Button>
+                                <Label htmlFor="action-comment">Результат проверки / Комментарий</Label>
+
                             </div>
                             <Textarea
                                 id="action-comment"
                                 rows={9}
                                 className="font-mono text-xs leading-relaxed"
-                                placeholder="Текст наряда или комментарий..."
+                                placeholder="Наблюдения, измерения, выполненные действия и результат..."
                                 value={comment}
                                 onChange={(e) => setComment(e.target.value)}
                             />
                         </div>
                     </div>
 
+                    <div className="grid gap-2 pb-4"><Label htmlFor="action-reason">Основание решения</Label>
+                    <select id="action-reason" className="rounded border bg-background p-2" value={reasonCode} onChange={e => setReasonCode(e.target.value)}>
+                      <option value="SENSOR_CHECK">Проверка показаний</option><option value="VIDEO_CHECK">Видеопроверка</option>
+                      <option value="PLANNED_WORK">Плановые работы</option><option value="SITE_INSPECTION">Осмотр на объекте</option><option value="OTHER">Другое</option>
+                    </select>{error && <p role="alert">{error}</p>}</div>
                     <DialogFooter className="gap-2 sm:gap-0">
                         <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
                             Отмена
                         </Button>
                         <Button type="submit" disabled={loading}>
-                            {loading ? 'Регистрация...' : 'Утвердить и отправить'}
+                            {loading ? 'Регистрация...' : 'Сохранить решение'}
                         </Button>
                     </DialogFooter>
                 </form>

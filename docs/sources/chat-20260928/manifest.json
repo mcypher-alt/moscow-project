@@ -1,0 +1,54 @@
+{
+  "retrievedAt": "2026-09-29",
+  "export": "ChatExport_2026-09-28",
+  "sources": {
+    "sensor-states.csv": "Organizer dataset linked in message156, announced in message457; retrieved via Yandex Disk UI",
+    "organizer-questions.xlsx": "https://docs.google.com/spreadsheets/d/1xYVkEPm7PTiedfeobnrHl9EXlgq3766_/edit (message410)",
+    "maintenanceSchedules": "messages478–480; byte-identical to ML workspace copies",
+    "presentationTemplate": "message500",
+    "meetingRecording": "https://drive.google.com/file/d/17WdCumSOmGDE2rCvnFgITuMIfhGh78og/view (not transcribed)",
+    "systemVideo": "https://youtu.be/25il_s439Eg?t=621 (not transcribed)"
+  },
+  "files": [
+    {
+      "file": "maintenance-staging.json",
+      "bytes": 294015,
+      "sha256": "1bd60247df59c7e78da970415cc675df76735974fd198066a866e8a93e40cd06"
+    },
+    {
+      "file": "organizer-questions.xlsx",
+      "bytes": 57022,
+      "sha256": "b8e9164b149fdf187bb056e31b96957112142a973fa41d011bcb6a7b5158cc56"
+    },
+    {
+      "file": "sensor-states.csv",
+      "bytes": 3925,
+      "sha256": "b968f3652ed33fd6e0d2dccee334275436dada67f4549763cfb4b2072108b5cc"
+    },
+    {
+      "file": "График ППР АКМ на 2026г. РЭК.xlsx",
+      "bytes": 46980,
+      "sha256": "8ae33d6362ee16c935f59349ad9c66c1c76c1785fb10e02b828ce003b672cf4d"
+    },
+    {
+      "file": "График_ТО_АКМ_и_ДУ_на_2026г_РЭК_3_на_А4.xlsx",
+      "bytes": 27005,
+      "sha256": "ef14db84b977a418d346afc3b2b5f0a8a5aef1820144fc955a7c774939a9cd68"
+    },
+    {
+      "file": "Инструкция для участника.pdf",
+      "bytes": 1562655,
+      "sha256": "e103609aa41d02e376b94439024cad676e9cb5c05c7157964a19fef8687cf9fe"
+    },
+    {
+      "file": "ЛЦТ2026 Шаблон презентации.pptx",
+      "bytes": 33766501,
+      "sha256": "858da047f42bc3fe59f167b3f87dd17e9b7980fd78949ea750bb9ef668707247"
+    },
+    {
+      "file": "Ответы на вопросы.pdf",
+      "bytes": 1334321,
+      "sha256": "5d374f73662814b4a50df555658fe27c8a577000e4789db42f966ce4e9ccc6d1"
+    }
+  ]
+}

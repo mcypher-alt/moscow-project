@@ -34,15 +34,15 @@ export function MapPage() {
                         </CardTitle>
                     </CardHeader>
 
-                    <CardContent className="space-y-4">
+                    <CardContent className="space-y-4"><p className="text-sm text-muted-foreground">Серый: нет актуального прогноза. Без координат объекты доступны через поиск и раздел «Объекты».</p>
                         <div className="flex items-center gap-3">
                             <span className="h-3 w-3 rounded-full bg-red-500" />
                             <div>
                                 <p className="font-medium">
-                                    Критический риск
+                                    Требует проверки
                                 </p>
                                 <p className="text-xs text-muted-foreground">
-                                    Требуется оперативная реакция
+                                    Актуальный прогноз и открытое предупреждение
                                 </p>
                             </div>
                         </div>
@@ -63,10 +63,10 @@ export function MapPage() {
                             <span className="h-3 w-3 rounded-full bg-green-500" />
                             <div>
                                 <p className="font-medium">
-                                    Штатное состояние
+                                    Ниже порога модели
                                 </p>
                                 <p className="text-xs text-muted-foreground">
-                                    Отклонения не обнаружены
+                                    Исправность оборудования не подтверждена
                                 </p>
                             </div>
                         </div>

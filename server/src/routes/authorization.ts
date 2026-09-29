@@ -7,7 +7,7 @@ const router = Router();
 const COOKIE_NAME = 'token';
 const COOKIE_OPTIONS = {
     httpOnly: true,
-    secure: false,
+    secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax' as const,
     path: '/',
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 дней
@@ -16,13 +16,14 @@ const COOKIE_OPTIONS = {
 router.post('/login', async (req: Request, res: Response) => {
     const { email, password } = req.body;
 
-    if (!email || !password) {
+    if (typeof email !== 'string' || typeof password !== 'string' || !email || !password || email.length > 254 || password.length > 1024) {
         return res.status(400).json({ error: 'Заполните email и пароль' });
     }
 
     try {
         const { user, token } = await login({ email, password });
 
+        req.user = { id: user.id, role: user.role };
         res.cookie(COOKIE_NAME, token, COOKIE_OPTIONS);
         return res.json({ user });
     } catch (error: any) {
@@ -33,7 +34,7 @@ router.post('/login', async (req: Request, res: Response) => {
     }
 });
 
-router.post('/logout', (_req: Request, res: Response) => {
+router.post('/logout', authenticateJwt, (_req: Request, res: Response) => {
     res.clearCookie(COOKIE_NAME, {
         httpOnly: true,
         sameSite: 'lax',

@@ -6,7 +6,6 @@ import type {
     DispatcherAction,
     RecordActionPayload,
     HotAlert,
-    SystemObjectDetails,
 } from '../types';
 
 export const api = axios.create({
@@ -34,29 +33,11 @@ export const authApi = {
     },
 };
 
-export interface IncidentFilters {
-    status?: string;
-    systemObjectId?: number;
-    search?: string;
-    dateFrom?: string;
-    dateTo?: string;
-    take?: number;
-    skip?: number;
-}
+export interface IncidentFilters { status?: string; systemObjectId?: number; search?: string; dateFrom?: string; dateTo?: string; offset?: number; }
 
 export const incidentsApi = {
     getAll: async (filters: IncidentFilters = {}): Promise<Incident[]> => {
-        // Удаляем пустые строки, undefined и null, чтобы в URL не летели пустые ключи (?status=&search=)
-        const cleanParams = Object.entries(filters).reduce<Record<string, unknown>>((acc, [key, val]) => {
-            if (val !== undefined && val !== '' && val !== null) {
-                acc[key] = val;
-            }
-            return acc;
-        }, {});
-
-        const response = await api.get<Incident[]>('/incidents', {
-            params: cleanParams,
-        });
+        const response = await api.get<Incident[]>('/incidents', { params: filters });
         return response.data;
     },
 
@@ -73,7 +54,7 @@ export const incidentsApi = {
 };
 
 export const alertsApi = {
-    getHot: async (limit = 50): Promise<HotAlert[]> => {
+    getHot: async (limit = 10): Promise<HotAlert[]> => {
         const response = await api.get<HotAlert[]>(`/alerts/hot?limit=${limit}`);
         return response.data;
     },
@@ -89,18 +70,6 @@ export const alertsApi = {
 
     //sse
     getStreamUrl: (): string => {
-        return `/api/alerts/stream`;
-    },
-};
-
-export const objectsApi = {
-    getById: async (id: string | number): Promise<SystemObjectDetails> => {
-        const { data } = await api.get<SystemObjectDetails>(`/objects/${id}`);
-        return data;
-    },
-
-    getAll: async (): Promise<SystemObjectDetails[]> => {
-        const { data } = await api.get<SystemObjectDetails[]>('/objects');
-        return data;
+        return `${api.defaults.baseURL}/alerts/stream`;
     },
 };

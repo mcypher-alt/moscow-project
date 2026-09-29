@@ -1,3 +1,4 @@
+import { decisionLabels, reasonLabels } from '../lib/decisions';
 import { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 
@@ -5,11 +6,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 
+import { useIncidents } from '../hooks/useDispatcher';
+
 type JournalStatus =
     | 'OPEN'
     | 'IN_PROGRESS'
     | 'CONFIRMED'
-    | 'FALSE_POSITIVE';
+    | 'FALSE_POSITIVE'
+    | 'RESOLVED';
 
 interface JournalEntry {
     id: string;
@@ -22,50 +26,8 @@ interface JournalEntry {
     result: string;
 }
 
-const entries: JournalEntry[] = [
-    {
-        id: 'INC-001',
-        objectId: 5122,
-        objectName: 'ДУ объект Альфа',
-        incident: 'Перегрев подшипника насоса',
-        status: 'OPEN',
-        createdAt: '2026-09-22T10:30:00',
-        horizon: '24–48 часов',
-        result: 'Ожидает обработки диспетчером',
-    },
-    {
-        id: 'INC-002',
-        objectId: 3814,
-        objectName: 'Коллектор №3814',
-        incident: 'Повышенный пожарный риск',
-        status: 'IN_PROGRESS',
-        createdAt: '2026-09-22T09:15:00',
-        horizon: '24 часа',
-        result: 'Направлена заявка на проверку',
-    },
-    {
-        id: 'INC-003',
-        objectId: 4201,
-        objectName: 'Коллектор №4201',
-        incident: 'Неисправность температурного датчика',
-        status: 'CONFIRMED',
-        createdAt: '2026-09-21T17:40:00',
-        horizon: '48 часов',
-        result: 'Неисправность подтверждена',
-    },
-    {
-        id: 'INC-004',
-        objectId: 2760,
-        objectName: 'Коллектор №2760',
-        incident: 'Аномалия датчика доступа',
-        status: 'FALSE_POSITIVE',
-        createdAt: '2026-09-21T12:10:00',
-        horizon: '24 часа',
-        result: 'Ложное срабатывание',
-    },
-];
-
 const labels: Record<JournalStatus, string> = {
+    RESOLVED: 'Устранён',
     OPEN: 'Открыт',
     IN_PROGRESS: 'В работе',
     CONFIRMED: 'Подтверждён',
@@ -74,6 +36,13 @@ const labels: Record<JournalStatus, string> = {
 
 export function JournalPage() {
     const [search, setSearch] = useState('');
+    const [offset, setOffset] = useState(0);
+    const { incidents, isLoading, isError } = useIncidents(offset);
+    const entries: JournalEntry[] = useMemo(() => incidents.map(item => ({
+        id: item.id, objectId: item.systemObjectId, objectName: item.systemObject?.dispatcherName ?? String(item.systemObjectId),
+        incident: item.scenario, status: item.status, createdAt: item.createdAt, horizon: item.horizon,
+        result: item.actions?.map(action => `${new Date(action.createdAt).toLocaleString("ru-RU")} · ${decisionLabels[action.decision] ?? action.decision} (${reasonLabels[action.reasonCode ?? ""] ?? action.reasonCode ?? "—"}) · ${action.userId}: ${action.comment ?? ''}`).join('; ') || 'Ожидает обработки диспетчером',
+    })), [incidents]);
 
     const filtered = useMemo(() => {
         const query = search.trim().toLowerCase();
@@ -93,8 +62,10 @@ export function JournalPage() {
                 .toLowerCase()
                 .includes(query)
         );
-    }, [search]);
+    }, [search, entries]);
 
+    if (isLoading) return <p className="p-6" role="status">Загрузка журнала…</p>;
+    if (isError) return <p className="p-6" role="alert">Не удалось загрузить журнал.</p>;
     return (
         <div className="space-y-6 p-6">
             <div>
@@ -107,6 +78,7 @@ export function JournalPage() {
                 </p>
             </div>
 
+            <div className="flex gap-4"><button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 100))}>Назад</button><span>Записи {offset + 1}–{offset + entries.length}</span><button disabled={entries.length < 100} onClick={() => setOffset(offset + 100)}>Далее</button></div>
             <Card>
                 <CardHeader>
                     <CardTitle className="text-base">
@@ -187,7 +159,7 @@ export function JournalPage() {
                                         <td className="p-4 whitespace-nowrap text-muted-foreground">
                                             {new Date(
                                                 entry.createdAt
-                                            ).toLocaleString('ru-RU')}
+                                            ).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' }) + ' МСК'}
                                         </td>
 
                                         <td className="p-4">

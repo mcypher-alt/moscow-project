@@ -1,273 +1,162 @@
-import { ArrowLeft, CheckCircle2, Network, Cpu, AlertTriangle, ArrowRight } from "lucide-react";
+import { objectKindLabel } from '../lib/objectLabels';
+import { IncidentLink } from '../components/IncidentLink';
+import { RecordActionDialog } from '../components/RecordActionDialog';
+import { useAuth, useIncidents } from '../hooks/useDispatcher';
+import { decisionLabels, reasonLabels } from '../lib/decisions';
+import { MaintenanceDialog } from '../components/MaintenanceDialog';
+import { useParams, useNavigate } from "react-router";
+import { ArrowLeft } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useObjectDetails } from "../hooks/useDispatcher";
 
-// Безопасное извлечение ID объекта из адресной строки (/objects/123 или #/objects/123)
-function getObjectIdFromUrl(): string | undefined {
-  if (typeof window === "undefined") return undefined;
-
-  const path = window.location.hash.includes("/objects/")
-    ? window.location.hash
-    : window.location.pathname;
-
-  const parts = path.split("/").filter(Boolean);
-  const objectIndex = parts.findIndex((p) => p.includes("objects"));
-  
-  if (objectIndex !== -1 && parts[objectIndex + 1]) {
-    return parts[objectIndex + 1].split("?")[0];
-  }
-
-  return parts[parts.length - 1]?.split("?")[0];
-}
+import { useObject, objectRisk, isForecastFresh } from '../hooks/useObjects';
 
 export function ObjectDetailsPage() {
-  const id = getObjectIdFromUrl();
-  const { data: object, isLoading, error } = useObjectDetails(id);
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { recordAction } = useIncidents();
+  const canAct = user?.role === 'ADMIN' || user?.role === 'DISPATCHER';
+  const { id } = useParams();
+  const query = useObject(id);
+  const item = query.data;
+  const forecast = item?.forecasts?.[0];
+  const object = item ? { id: item.id, name: item.dispatcherName, type: objectKindLabel(item.objectKind),
+    address: item.address ?? "Локация не предоставлена", status: objectRisk(item).toUpperCase(),
+    incident: forecast?.scenario ?? "Прогноза нет", horizon: forecast ? `${forecast.horizonHours} часа • (${forecast.probability.toFixed(1)}%)` : "—",
+    reason: forecast?.reason ?? "—", recommendation: forecast?.recommendation ?? "—",
+    sensors: (item.channels ?? []).map(channel => ({ name: channel.sensorName, id: channel.id,
+      value: channel.events[0] ? `${channel.events[0].rawValue ?? channel.events[0].numericValue ?? "—"} • ${new Date(channel.events[0].recordedAt).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' }) + ' МСК'}` : "Нет показаний",
+      status: channel.events[0] && query.dataUpdatedAt - Date.parse(channel.events[0].recordedAt) > 300000 ? "STALE" : channel.events[0]?.isAlarm ? "ALARM" : channel.events[0] ? "NORMAL" : "UNKNOWN" })),
+  } : undefined;
+  if (query.isLoading) return <p className="p-6" role="status">Загрузка объекта…</p>;
+  if (query.isError) return <p className="p-6" role="alert">Не удалось загрузить объект.</p>;
 
-  // 1. Состояние загрузки
-  if (isLoading) {
+  if (!object) {
     return (
-      <div className="flex h-96 items-center justify-center p-6">
-        <p className="text-sm text-muted-foreground animate-pulse">
-          Загрузка паспорта объекта...
-        </p>
+      <div className="p-6">
+        <p>Объект не найден.</p>
       </div>
     );
   }
-
-  // 2. Обработка ошибки / отсутствия объекта в БД
-  if (error || !object) {
-    return (
-      <div className="space-y-4 p-6 max-w-[1400px] mx-auto">
-        <Button variant="ghost" onClick={() => window.history.back()}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Назад
-        </Button>
-        <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-8 text-center">
-          <p className="text-sm font-medium text-destructive">
-            Объект #{id ?? "—"} не найден в базе данных или произошла ошибка загрузки.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  const isCritical = object.status === "CRITICAL" && Boolean(object.incident);
 
   return (
-    <div className="space-y-6 p-4 md:p-6 max-w-[1400px] mx-auto">
-      {/* Шапка страницы */}
+    <div className="space-y-6 p-6">
       <div>
         <Button
           variant="ghost"
           className="mb-4"
-          onClick={() => window.history.back()}
+          onClick={() => navigate("/objects")}
         >
           <ArrowLeft className="mr-2 h-4 w-4" />
-          Назад
+          Назад к объектам
         </Button>
 
-        <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">{object.name}</h1>
-            <div className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
-              <span>ИД объекта: #{object.id}</span>
-              <span>•</span>
-              <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded">
-                Уровень иерархии: {object.level}
-              </span>
-            </div>
+            <h1 className="text-2xl font-bold">{object.name}</h1>
+            {item && <IncidentLink object={item} label="Перейти к инциденту" />}
+
+            <p className="mt-1 text-sm text-muted-foreground">
+              Объект #{object.id}
+            </p>
           </div>
 
           <Badge
-            variant={isCritical ? "destructive" : "secondary"}
-            className="text-xs"
+            variant={object.status === "CRITICAL" ? "destructive" : "secondary"}
           >
-            {isCritical ? "Критический риск" : "Штатное состояние"}
+            {object.status === "CRITICAL"
+              ? "Требует проверки"
+              : object.status === "WARNING" ? "Повышенный риск" : object.status === "NORMAL" ? "Ниже порога модели" : "Нет актуального прогноза"}
           </Badge>
         </div>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
-        {/* Карточка 1: Параметры объекта и топология */}
         <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center gap-2">
-              <Network className="h-4 w-4 text-muted-foreground" />
-              <CardTitle className="text-base font-semibold">
-                Параметры объекта и топология
-              </CardTitle>
-            </div>
+          <CardHeader>
+            <CardTitle>Информация об объекте</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4 text-sm">
+
+          <CardContent className="space-y-4">
             <div>
-              <p className="text-xs text-muted-foreground">Вид объекта (objectKind)</p>
-              <p className="mt-1 font-medium">{object.kindLabel}</p>
+              <p className="text-xs text-muted-foreground">Тип объекта</p>
+              <p className="mt-1 font-medium">{object.type}</p>
             </div>
 
             <div>
-              <p className="text-xs text-muted-foreground">Родительский узел (parentId)</p>
-              {object.parent ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    window.location.href = `/objects/${object.parent?.id}`;
-                  }}
-                  className="mt-1 text-sm font-medium text-primary hover:underline flex items-center gap-1.5"
-                >
-                  <span>{object.parent.name}</span>
-                  <span className="font-mono text-xs text-muted-foreground">
-                    (#{object.parent.id})
-                  </span>
-                </button>
-              ) : (
-                <p className="mt-1 text-muted-foreground">Корневой уровень системы</p>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 pt-3 border-t">
-              <div>
-                <p className="text-xs text-muted-foreground">Каналов телеметрии</p>
-                <p className="mt-1 text-xl font-bold">{object.sensors.length}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Дочерних узлов</p>
-                <p className="mt-1 text-xl font-bold">{object.childrenCount}</p>
-              </div>
+              <p className="text-xs text-muted-foreground">Локация</p>
+              <p className="mt-1 font-medium">{object.address}</p>
             </div>
           </CardContent>
         </Card>
 
-        {/* Карточка 2: Активный прогноз инцидента */}
-        {object.incident ? (
-          <Card className="border-destructive/30 bg-destructive/[0.02] shadow-sm flex flex-col justify-between">
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-                <CardTitle className="text-base font-semibold text-destructive flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4" />
-                  Активный прогноз инцидента
-                </CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3.5 text-sm">
-              <div>
-                <p className="text-xs text-muted-foreground">Прогнозируемая авария</p>
-                <p className="mt-1 font-medium text-destructive">{object.incident.scenario}</p>
-              </div>
+        <Card className="border-destructive/30">
+          <CardHeader>
+            <CardTitle>Последний прогноз</CardTitle>
+          </CardHeader>
 
-              <div>
-                <p className="text-xs text-muted-foreground">Расчетный горизонт</p>
-                <p className="mt-1 font-medium">{object.incident.horizon}</p>
-              </div>
+          <CardContent className="space-y-4">
+            {forecast && <p className="text-sm text-muted-foreground">
+              Данные: {new Date(forecast.evaluatedAt).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' })} МСК · модель {forecast.modelVersion}.
+              {!isForecastFresh(forecast) && ' Данные устарели; прогноз не отражает текущее состояние.'}
+            </p>}
+            <div>
+              <p className="text-xs text-muted-foreground">Инцидент</p>
+              <p className="mt-1 font-medium">{object.incident}</p>
+            </div>
 
-              <div>
-                <p className="text-xs text-muted-foreground">Фактор-триггер</p>
-                <p className="mt-1 text-muted-foreground leading-relaxed">
-                  {object.incident.reason}
-                </p>
-              </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Горизонт</p>
+              <p className="mt-1 font-medium">{object.horizon}</p>
+            </div>
 
-              <div>
-                <p className="text-xs text-muted-foreground">Предписанный регламент</p>
-                <p className="mt-1 leading-relaxed">
-                  {object.incident.recommendation || "Согласно технологической карте объекта"}
-                </p>
-              </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Причина</p>
+              <p className="mt-1">{object.reason}</p>
+            </div>
 
-              <div className="pt-3 border-t border-destructive/20">
-                <Button
-                  type="button"
-                  variant="destructive"
-                  className="group w-full justify-between shadow-sm transition-all duration-200 hover:shadow-md active:scale-[0.99]"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    // Открываем дашборд с поиском по имени объекта
-                    window.location.href = `/dashboard?search=${encodeURIComponent(object.name)}`;
-                  }}
-                >
-                  <span className="font-medium">Перейти к инциденту в журнале</span>
-                  <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <Card className="border-green-500/20 bg-green-500/5">
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2 text-green-600 dark:text-green-400">
-                <CheckCircle2 className="h-5 w-5" />
-                <CardTitle className="text-base font-semibold">Состояние штатное</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Система предиктивной аналитики не обнаружила критических отклонений или рисков аварии на данном объекте.
-              </p>
-            </CardContent>
-          </Card>
-        )}
+            <div>
+              <p className="text-xs text-muted-foreground">Рекомендация</p>
+              <p className="mt-1 mb-3">{object.recommendation}</p><MaintenanceDialog objectId={object.id} />
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Карточка 3: Сенсоры и каналы телеметрии */}
+      {!!item?.incidents?.length && <Card><CardHeader><CardTitle>Решения и результаты проверки</CardTitle></CardHeader><CardContent className="space-y-4">{item.incidents.map(incident => <section key={incident.id} className="border rounded p-3 space-y-2"><p className="font-semibold">{incident.scenario} · {{ OPEN: 'Открыт', IN_PROGRESS: 'В работе', CONFIRMED: 'Подтверждён', FALSE_POSITIVE: 'Ложное срабатывание', RESOLVED: 'Устранён' }[incident.status]}</p><RecordActionDialog incident={incident} disabled={!canAct || ['RESOLVED','FALSE_POSITIVE'].includes(incident.status)} onSubmit={payload => recordAction({ incidentId: incident.id, payload })} />{incident.actions?.map(action => <p key={action.id}>{new Date(action.createdAt).toLocaleString('ru-RU')} · {decisionLabels[action.decision] ?? action.decision} · {reasonLabels[action.reasonCode ?? ''] ?? action.reasonCode}: {action.comment || 'Без комментария'}</p>)}</section>)}</CardContent></Card>}
+      {!!item?.workRequests?.length && <Card><CardHeader><CardTitle>Плановые работы и заявки</CardTitle></CardHeader><CardContent>{item.workRequests.map(work => <p key={work.externalId}>{work.externalId}: {work.status} — {work.description}</p>)}</CardContent></Card>}
       <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Cpu className="h-4 w-4 text-muted-foreground" />
-              <CardTitle className="text-base font-semibold">
-                Подключенные датчики и каналы
-              </CardTitle>
-            </div>
-            <Badge variant="outline" className="text-xs">
-              Всего: {object.sensors.length}
-            </Badge>
-          </div>
+        <CardHeader>
+          <CardTitle>Датчики объекта</CardTitle>
         </CardHeader>
 
         <CardContent>
-          {object.sensors.length === 0 ? (
-            <div className="rounded-lg border border-dashed p-6 text-center">
-              <p className="text-sm text-muted-foreground">
-                К объекту пока не привязано ни одного датчика.
-              </p>
-            </div>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {object.sensors.map((sensor) => (
-                <div
-                  key={sensor.id}
-                  className="flex flex-col justify-between rounded-lg border bg-card p-3.5 space-y-2 shadow-sm"
-                >
-                  <div>
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-medium leading-snug break-words">
-                        {sensor.name}
-                      </p>
-                      <span className="font-mono text-[10px] text-muted-foreground shrink-0 bg-muted px-1.5 py-0.5 rounded">
-                        #{sensor.id}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {sensor.systemType || "Общий контур"}
-                    </p>
-                  </div>
+          <div className="space-y-3">
+            {object.sensors.map((sensor) => (
+              <div
+                key={sensor.id}
+                className="flex items-center justify-between rounded-lg border p-4"
+              >
+                <div>
+                  <p className="font-medium">{sensor.name}</p>
 
-                  <div className="pt-2 border-t flex items-center justify-between text-xs">
-                    <span className="font-mono text-muted-foreground text-[11px] truncate max-w-[140px]">
-                      {sensor.systemTag}
-                    </span>
-                    <Badge variant="secondary" className="text-[10px] shrink-0">
-                      {sensor.sensorType || "Аналоговый"}
-                    </Badge>
-                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {sensor.value}
+                  </p>
                 </div>
-              ))}
-            </div>
-          )}
+
+                <Badge
+                  variant={
+                    sensor.status === "ALARM" ? "destructive" : "secondary"
+                  }
+                >
+                  {{ STALE: 'Устаревшие показания', ALARM: 'Тревожный сигнал', NORMAL: 'Без тревожного сигнала', UNKNOWN: 'Нет показаний' }[sensor.status]}
+                </Badge>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
     </div>
