@@ -1,6 +1,6 @@
 import { app } from './app.js';
 import { startTelemetryWorker, stopTelemetryWorker } from './workers/telemetry.worker.js';
-const server = app.listen(Number(process.env.PORT || 5000), () => {
+const server = app.listen(Number(process.env.PORT || 5000), process.env.HOST || '0.0.0.0', () => {
   console.log('Server listening');
   if (process.env.DISABLE_WORKER !== 'true') void startTelemetryWorker();
 });

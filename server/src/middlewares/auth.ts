@@ -23,8 +23,9 @@ export const authenticateJwt = async (req: Request, res: Response, next: NextFun
     let token: string | undefined;
 
     // 1. Проверяем наличие токена в HttpOnly Cookie
-    if (req.cookies && req.cookies.token) {
-        token = req.cookies.token;
+    const cookieName = process.env.AUTH_COOKIE_NAME || 'token';
+    if (req.cookies && req.cookies[cookieName]) {
+        token = req.cookies[cookieName];
     } 
     // 2. Фолбэк: если куки нет, проверяем заголовок Authorization: Bearer <token>
     else if (req.headers.authorization?.startsWith('Bearer ')) {

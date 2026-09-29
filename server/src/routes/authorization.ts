@@ -4,12 +4,12 @@ import { authenticateJwt } from '../middlewares/auth.js';
 
 const router = Router();
 
-const COOKIE_NAME = 'token';
+const COOKIE_NAME = process.env.AUTH_COOKIE_NAME || 'token';
 const COOKIE_OPTIONS = {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax' as const,
-    path: '/',
+    path: process.env.AUTH_COOKIE_PATH || '/',
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 дней
 };
 
@@ -35,10 +35,7 @@ router.post('/login', async (req: Request, res: Response) => {
 });
 
 router.post('/logout', authenticateJwt, (_req: Request, res: Response) => {
-    res.clearCookie(COOKIE_NAME, {
-        httpOnly: true,
-        sameSite: 'lax',
-    });
+    res.clearCookie(COOKIE_NAME, { ...COOKIE_OPTIONS, maxAge: undefined });
     return res.json({ success: true });
 });
 

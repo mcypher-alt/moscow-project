@@ -56,7 +56,7 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="dark">
-        <BrowserRouter>
+        <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '') || '/'}>
           <AppRoutes />
         </BrowserRouter>
       </ThemeProvider>
