@@ -23,3 +23,13 @@ This small shared server is for demonstration, not a production load guarantee. 
 HTTPS login/logout, scoped secure cookie, unauthenticated access rejection, 95 objects, 46 incidents, forecast list, SSE connection and direct nested-page loading passed. The original site returned HTTP 200 and its four containers remained healthy. API, ML, database and cache listen on loopback only. Daily database backups use `moscollector-backup.timer`, retained for seven days in `/var/backups/moscollector`; the first backup completed. Nginx configuration was backed up before adding the include.
 
 At completion the shared 15 GB filesystem had approximately 0.5 GB free. Increase disk space before importing additional history; the host has only 1 GB RAM plus swap. No production load capacity is claimed.
+
+## Shared portal — 30 September 2026
+
+`https://uk-web.ru/` now serves the project selector from `/var/www/hackathons`. Its exact button labels are «Хакатон MAX» and «Хакатон MOSCOW», pointing to `/max/` and `/moscow/`.
+
+MAX static build is served through `/var/www/max` → `/opt/max-project/client/dist`. Its source has a Vite `/max/` base, prefixed API/asset paths, resident route handling, scoped service worker and PWA manifest. Build with Node 22 and `npm run build --workspace=frontend` from the MAX repository; replace this dist directory when deploying. The MAX API remains in its existing Docker container; `/max/api/` proxies to its internal `/api/` routes. Original `/api/` and cached asset URLs remain available for legacy integrations. Old root invitation links redirect to `/max/` while retaining the query. The root service worker unregisters itself; MAX registers `/max/sw.js`.
+
+Before changing routes, nginx configuration, MAX client sources and the running client's files were backed up on the server. Existing uncommitted MAX changes were preserved. No application databases were reset. Verified both portal links in a browser, both login screens, MAX static assets/PWA, protected MAX API responses, legacy invitations, and MOSCOW health.
+
+The OS still reported 1 vCPU, 1 GB RAM and a 15 GB disk at this deployment despite the requested provider upgrade. Confirm that the provider has applied the new resources. No server reboot was performed.
